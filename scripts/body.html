@@ -1,0 +1,616 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#0f1419">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Телеграмм2">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Телеграмм2">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="icon" type="image/png" href="icon-192.png">
+<title>Телеграмм2 — соцсеть твоего класса</title>
+<style>
+:root{
+  --bg:#0f1419; --bg2:#161b22; --bg3:#1c2330; --fg:#e6edf3; --mut:#8b949e;
+  --acc:#2f81f7; --acc2:#58a6ff; --ok:#3fb950; --warn:#d29922; --bad:#f85149;
+  --r:14px; --shadow:0 8px 30px rgba(0,0,0,.35);
+}
+/* ---------- atom wallpaper ---------- */
+body{background:var(--bg);background-image:
+  radial-gradient(1200px 600px at 15% -10%, rgba(88,166,255,.10), transparent 60%),
+  radial-gradient(900px 600px at 110% 110%, rgba(163,113,247,.10), transparent 60%);}
+body::before{
+  content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
+  background:
+    radial-gradient(circle at 50% 50%, rgba(88,166,255,.055) 0 1.5px, transparent 1.6px) 0 0/100% 100%;
+  opacity:.5;
+}
+body::after{
+  content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 800 800'%3E%3Cg fill='none' stroke='%2358a6ff' stroke-width='2' stroke-opacity='0.16'%3E%3Cellipse cx='400' cy='400' rx='340' ry='130'/%3E%3Cellipse cx='400' cy='400' rx='340' ry='130' transform='rotate(60 400 400)'/%3E%3Cellipse cx='400' cy='400' rx='340' ry='130' transform='rotate(120 400 400)'/%3E%3Ccircle cx='400' cy='400' r='13' fill='%2358a6ff' fill-opacity='0.30' stroke='none'/%3E%3Ccircle cx='400' cy='60' r='9' fill='%23a371f7' fill-opacity='0.28' stroke='none'/%3E%3Ccircle cx='685' cy='530' r='9' fill='%2358a6ff' fill-opacity='0.28' stroke='none'/%3E%3Ccircle cx='115' cy='530' r='9' fill='%23a371f7' fill-opacity='0.28' stroke='none'/%3E%3C/g%3E%3C/svg%3E");
+  background-size:min(92vmin,720px);background-position:center;background-repeat:no-repeat;
+  opacity:.55;
+}
+.app{position:relative;z-index:1}
+.side,.main{background:transparent}
+.side{backdrop-filter:blur(18px);background:rgba(22,27,34,.82)}
+.main{background:transparent}
+.messages{background:transparent}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;padding:0;height:100%}
+body{background:var(--bg);color:var(--fg);font:15px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;overflow:hidden}
+button{font:inherit;cursor:pointer;border:0;background:none;color:inherit}
+input,textarea{font:inherit}
+.app{display:flex;height:100dvh}
+
+/* ---------- sidebar ---------- */
+.side{width:300px;flex:0 0 300px;background:var(--bg2);border-right:1px solid #21262d;display:flex;flex-direction:column;transition:transform .22s ease}
+.brand{display:flex;align-items:center;gap:10px;padding:14px 16px;border-bottom:1px solid #21262d}
+.logo{width:34px;height:34px;border-radius:10px;background:linear-gradient(135deg,#2f81f7,#a371f7);display:grid;place-items:center;font-weight:800}
+.brand h1{font-size:16px;margin:0}
+.brand small{color:var(--mut);font-size:12px}
+.sideScroll{flex:1;overflow-y:auto;padding:10px 8px 24px}
+.secTitle{font-size:11px;text-transform:uppercase;letter-spacing:.09em;color:var(--mut);padding:12px 10px 6px;display:flex;justify-content:space-between;align-items:center}
+.secTitle button{font-size:18px;color:var(--mut);line-height:1;padding:2px 6px;border-radius:6px}
+.secTitle button:hover{background:#21262d;color:var(--fg)}
+.ch{display:flex;align-items:center;gap:9px;padding:8px 10px;border-radius:9px;cursor:pointer;margin-bottom:1px}
+.ch:hover{background:#21262d}
+.ch.active{background:#1f6feb33;box-shadow:inset 0 0 0 1px #1f6feb66}
+.ch .ic{width:22px;text-align:center;opacity:.85}
+.ch .nm{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ch .tag{font-size:11px;color:var(--mut)}
+.ch .dot{width:7px;height:7px;border-radius:50%;background:var(--acc)}
+.ch.unread .nm{font-weight:700}
+
+/* ---------- main ---------- */
+.main{flex:1;display:flex;flex-direction:column;min-width:0;background:var(--bg)}
+.top{display:flex;align-items:center;gap:10px;padding:10px 14px;border-bottom:1px solid #21262d;background:var(--bg2);min-height:56px}
+.hamb{display:none;font-size:22px;padding:4px 8px}
+.top .ttl{font-weight:600;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.top .ttl small{display:block;font-weight:400;color:var(--mut);font-size:12px}
+.iconBtn{width:34px;height:34px;border-radius:9px;display:grid;place-items:center;color:var(--mut)}
+.iconBtn:hover{background:#21262d;color:var(--fg)}
+.messages{flex:1;overflow-y:auto;padding:16px 14px 8px;display:flex;flex-direction:column;gap:10px}
+.empty{margin:auto;text-align:center;color:var(--mut);max-width:340px}
+.empty .big{font-size:40px;margin-bottom:10px}
+.pinBanner{background:#1f6feb1a;border:1px solid #1f6feb55;color:var(--acc2);padding:9px 12px;border-radius:10px;font-size:13px;display:flex;gap:8px;align-items:flex-start}
+.pinBanner b{color:var(--fg)}
+.msg{display:flex;gap:10px;max-width:640px}
+.msg .av{width:36px;height:36px;border-radius:50%;flex:0 0 36px;display:grid;place-items:center;font-weight:700;font-size:14px;color:#fff;overflow:hidden}
+.msg .bubble{background:var(--bg3);border-radius:var(--r);padding:8px 12px;min-width:0;position:relative}
+.msg .meta{font-size:12px;color:var(--mut);margin-bottom:2px;display:flex;gap:6px;align-items:center}
+.msg .meta .who{color:var(--acc2);font-weight:600}
+.msg .meta .role{background:#2f81f733;color:var(--acc2);border-radius:5px;padding:0 5px;font-size:11px}
+.msg .text{white-space:pre-wrap;word-break:break-word}
+.msg .text a{color:var(--acc2)}
+.msg .att{margin-top:6px;background:#0d1117;border:1px solid #30363d;border-radius:10px;padding:8px 10px;font-size:13px;display:inline-block}
+.msg .att img{max-width:100%;border-radius:8px;display:block;margin-bottom:6px;max-height:320px}
+.msg .t{font-size:11px;color:#6e7681;text-align:right;margin-top:3px}
+.msg.me{flex-direction:row-reverse;align-self:flex-end}
+.msg.me .bubble{background:#1f6feb}
+.msg.me .meta .who{color:#cfe3ff}
+.msg.me .att{background:#0d111799;border-color:#1f6feb55}
+.msg.anon .av{background:#6e40c9}
+.sys{align-self:center;background:#21262d;color:var(--mut);font-size:12px;padding:5px 12px;border-radius:20px;max-width:80%;text-align:center}
+
+/* composer */
+.composer{border-top:1px solid #21262d;background:var(--bg2);padding:10px 12px;display:flex;gap:8px;align-items:flex-end}
+.composer textarea{flex:1;background:var(--bg3);border:1px solid #30363d;color:var(--fg);border-radius:12px;padding:10px 12px;resize:none;max-height:140px;min-height:42px;outline:none}
+.composer textarea:focus{border-color:var(--acc)}
+.send{background:var(--acc);color:#fff;width:42px;height:42px;border-radius:12px;display:grid;place-items:center;font-size:18px;flex:0 0 42px}
+.send:hover{background:#388bfd}
+.send:disabled{opacity:.4;cursor:default}
+.anonBtn{color:var(--mut);padding:0 4px;height:42px}
+.anonBtn.on{color:#a371f7}
+
+/* modal */
+.mask{position:fixed;inset:0;background:#000a;backdrop-filter:blur(3px);display:grid;place-items:center;padding:16px;z-index:50}
+.modal{background:var(--bg2);border:1px solid #30363d;border-radius:18px;width:min(460px,100%);max-height:88dvh;overflow-y:auto;box-shadow:var(--shadow);padding:18px}
+.modal h3{margin:0 0 4px;font-size:18px}
+.modal p.sub{margin:0 0 14px;color:var(--mut);font-size:13px}
+.field{margin-bottom:12px}
+.field label{display:block;font-size:12px;color:var(--mut);margin-bottom:5px}
+.field input,.field textarea{width:100%;background:var(--bg3);border:1px solid #30363d;color:var(--fg);border-radius:10px;padding:10px 12px;outline:none}
+.field input:focus,.field textarea:focus{border-color:var(--acc)}
+.btn{background:var(--acc);color:#fff;padding:11px 16px;border-radius:11px;width:100%;font-weight:600;margin-top:6px}
+.btn:hover{background:#388bfd}
+.btn.ghost{background:transparent;border:1px solid #30363d;color:var(--fg);font-weight:500;margin-top:8px}
+.pill{background:var(--bg3);border:1px solid #30363d;border-radius:9px;padding:8px 11px;margin:3px 3px 0 0;display:inline-block;font-size:13px;cursor:pointer}
+.pill.on{background:#1f6feb33;border-color:var(--acc);color:var(--acc2)}
+.opt{background:var(--bg3);border:1px solid #30363d;border-radius:10px;padding:10px 12px;margin-bottom:7px;cursor:pointer;display:flex;gap:10px;align-items:center}
+.opt:hover{border-color:var(--acc)}
+.opt .mk{width:18px;height:18px;border-radius:50%;border:2px solid #484f58;flex:0 0 18px;display:grid;place-items:center;font-size:11px;color:#fff}
+.opt.sel .mk{background:var(--acc);border-color:var(--acc)}
+.opt .pc{margin-left:auto;font-size:12px;color:var(--mut)}
+.res{background:var(--bg3);border-radius:10px;padding:9px 12px;margin-bottom:6px}
+.res .bar{height:7px;background:#21262d;border-radius:6px;margin-top:6px;overflow:hidden}
+.res .bar i{display:block;height:100%;background:var(--acc)}
+.res .pct{font-size:12px;color:var(--mut);margin-top:4px;display:flex;justify-content:space-between}
+.tabs{display:flex;gap:4px;background:var(--bg3);padding:4px;border-radius:11px;margin-bottom:14px}
+.tabs button{flex:1;padding:8px;border-radius:8px;color:var(--mut);font-size:13px}
+.tabs button.on{background:var(--bg);color:var(--fg)}
+.anonCard{background:var(--bg3);border:1px solid #30363d;border-radius:12px;padding:12px;margin-bottom:9px}
+.anonCard .q{font-weight:600;margin-bottom:8px}
+.anonCard .ans{background:var(--bg);border-radius:9px;padding:8px 10px;margin-bottom:5px;font-size:14px}
+.anonCard .ans .an{color:var(--acc2);font-size:12px}
+.copy{color:var(--mut);font-size:12px;text-align:center;margin-top:12px}
+.ch .del{color:var(--mut);font-size:12px;padding:0 4px;border-radius:6px;opacity:.55;line-height:1}
+.ch .del:hover{color:#f85149;opacity:1;background:#f8514922}
+.btn.danger{background:#f8514922;color:#f85149;border:1px solid #f8514966;margin-top:8px}
+.btn.danger:hover{background:#f8514933}
+.check{display:flex;gap:9px;align-items:center;font-size:13px;color:var(--mut);margin:-2px 0 12px;cursor:pointer}
+.check input{width:17px;height:17px;accent-color:#2f81f7;cursor:pointer}
+@media (max-width:820px){
+  .side{position:fixed;z-index:40;height:100dvh;transform:translateX(-100%)}
+  .side.open{transform:none}
+  .hamb{display:block}
+  .mask.dim{background:#0008}
+}
+</style>
+</head>
+<body>
+<div class="app">
+  <aside class="side" id="side">
+    <div class="brand">
+      <div class="logo">Т2</div>
+      <div><h1>Телеграмм2</h1><small id="brandSub">вход по коду класса</small></div>
+    </div>
+    <div class="sideScroll">
+      <div id="installHint" style="display:none;background:#2f81f722;border:1px solid #2f81f755;border-radius:12px;padding:11px 12px;margin-bottom:12px">
+        <div style="font-size:13px;font-weight:600;margin-bottom:4px">📲 Установить приложение</div>
+        <div style="font-size:12px;color:var(--mut);line-height:1.4" id="installHintTxt"></div>
+        <div id="browserInfo" style="font-size:11px;color:var(--mut);margin-top:8px;padding-top:8px;border-top:1px solid #2f81f733"></div>
+        <div style="display:flex;gap:7px;margin-top:9px;flex-wrap:wrap">
+          <button class="btn" id="installBtn2" style="padding:7px 12px;font-size:13px">Показать как установить</button>
+          <button class="btn ghost" id="copyLink" style="padding:7px 12px;font-size:13px">📋 Скопировать ссылку</button>
+        </div>
+        <button class="iconBtn" id="installX2" style="float:right;margin-top:-24px" title="Скрыть">✕</button>
+      </div>
+      <div class="secTitle">Каналы <button id="addCh" title="Создать канал">＋</button></div>
+      <div id="chList"></div>
+      <div class="secTitle">Чаты</div>
+      <div id="chatList"></div>
+    </div>
+  </aside>
+
+  <main class="main">
+    <div class="top">
+      <button class="hamb" id="hamb">☰</button>
+      <div class="ttl" id="roomTitle">Общий чат</div>
+      <button class="iconBtn" id="btnMe" title="Профиль">👤</button>
+      <button class="iconBtn" id="btnInfo" title="О канале">ⓘ</button>
+      <button class="iconBtn" id="btnInstallTop" title="Установить приложение">📲</button>
+      <button class="iconBtn" id="btnReload" title="Обновить версию">🔄</button>
+      <button class="iconBtn" id="btnPoll" title="Создать опрос">📊</button>
+      <button class="iconBtn" id="btnAnon" title="Анонимный вопрос">🕵️</button>
+      <button class="iconBtn" id="btnPin" title="Закрепить">📌</button>
+    </div>
+    <div class="messages" id="msgs"></div>
+    <div class="composer">
+      <button class="anonBtn" id="anonToggle" title="Анонимно">🕵️</button>
+      <textarea id="input" rows="1" placeholder="Написать сообщение…"></textarea>
+      <button class="send" id="send" disabled>➤</button>
+    </div>
+  </main>
+</div>
+<div id="modalHost"></div>
+
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<script>
+(function(){
+  var tg = window.Telegram && window.Telegram.WebApp;
+  if(tg){
+    try{ tg.ready(); }catch(e){}
+    try{ tg.expand(); }catch(e){}
+    try{ tg.disableVerticalSwipes && tg.disableVerticalSwipes(); }catch(e){}
+    window.__TG__ = tg;
+    // тема
+    try{
+      if(tg.themeParams && tg.themeParams.bg_color) document.documentElement.style.setProperty('--bg', tg.themeParams.bg_color);
+      if(tg.themeParams && tg.themeParams.secondary_bg_color) document.documentElement.style.setProperty('--bg2', tg.themeParams.secondary_bg_color);
+      if(tg.themeParams && tg.themeParams.text_color) document.documentElement.style.setProperty('--fg', tg.themeParams.text_color);
+      if(tg.themeParams && tg.themeParams.hint_color) document.documentElement.style.setProperty('--mut', tg.themeParams.hint_color);
+      if(tg.themeParams && tg.themeParams.button_color) document.documentElement.style.setProperty('--acc', tg.themeParams.button_color);
+    }catch(e){}
+    // кнопка "назад"
+    try{
+      if(tg.BackButton && tg.BackButton.show){ tg.BackButton.show(); tg.BackButton.onClick(function(){ try{tg.close();}catch(e){} }); }
+    }catch(e){}
+    // добавить кнопку в главное меню
+    try{
+      if(tg.MainButton && tg.MainButton.setText){
+        tg.MainButton.setText('Открыть Телеграмм2');
+        tg.MainButton.show();
+      }
+    }catch(e){}
+  }
+})();
+</script>
+<script>
+const KEY='classnet_v2';
+const CLASS_CODE='270427';
+const ADMIN_CODE='453045';
+const DEFAULT_CHANNELS=[
+  {id:'c_ann', name:'объявления', icon:'📢', about:'Замены, дедлайны, важное'},
+  {id:'c_life', name:'жизнь_класса', icon:'🎉', about:'Фотки, мемы, истории'},
+  {id:'c_study',name:'учеба', icon:'📚', about:'Домашки, конспекты, шпоры'},
+  {id:'c_shop', name:'барахолка', icon:'🏷️', about:'Продать / купить / отдать'},
+];
+const DEFAULT_CHAT={id:'g_main', name:'Общий чат', icon:'💬', type:'chat'};
+
+let S = load();
+function load(){
+  try{ const raw=localStorage.getItem(KEY); if(raw) return JSON.parse(raw);}catch(e){}
+  return {
+    user:{id:'u_me',name:'Ученик',role:'admin',avatar:'',joined:false},
+    channels:DEFAULT_CHANNELS.map(c=>({...c,posts:[]})),
+    chats:[{...DEFAULT_CHAT,messages:[]}], active:'g_main', anon:false, pinned:null,
+    polls:[], anonQs:[], members:27
+  };
+}
+function save(){ localStorage.setItem(KEY,JSON.stringify(S)); }
+
+const ME=S.user;
+const COLORS=['#2f81f7','#a371f7','#3fb950','#d29922','#f85149','#db61a2','#39c5cf','#bc8cff'];
+function avColor(id){let h=0;for(const c of id)h=(h*31+c.charCodeAt(0))>>>0;return COLORS[h%COLORS.length];}
+function initials(n){return (n||'?').trim().split(/\s+/).slice(0,2).map(x=>x[0]).join('').toUpperCase();}
+function esc(s){return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+function time(t){const d=new Date(t);return d.getHours().toString().padStart(2,'0')+':'+d.getMinutes().toString().padStart(2,'0');}
+
+function allRooms(){
+  const r=[];
+  S.channels.forEach(c=>r.push({id:c.id,name:c.name,icon:c.icon,type:'channel',about:c.about,posts:c.posts||[]}));
+  S.chats.forEach(c=>r.push({id:c.id,name:c.name,icon:c.icon,type:'chat',about:'Чат: '+c.name,messages:c.messages||[]}));
+  return r;
+}
+function room(id){return allRooms().find(r=>r.id===id);}
+
+/* ---------------- render ---------------- */
+function render(){
+  const rooms=allRooms();
+  const cl=document.getElementById('chList'); cl.innerHTML='';
+  const chatl=document.getElementById('chatList'); chatl.innerHTML='';
+  rooms.forEach(r=>{
+    const el=document.createElement('div');
+    el.className='ch'+(r.id===S.active?' active':'');
+    const n = r.type==='chat' ? (r.messages||[]).length : (r.posts||[]).length;
+    el.innerHTML=`<span class="ic">${r.icon}</span><span class="nm">${esc(r.name)}</span><span class="tag">${n||''}</span>`;
+    el.onclick=()=>{S.active=r.id;save();render();closeSide();};
+    if(r.type==='channel'&&ME.role==='admin'){
+      const b=document.createElement('button');
+      b.className='del'; b.textContent='✕'; b.title='Удалить канал';
+      b.onclick=(ev)=>{ev.stopPropagation();delChannel(r.id);};
+      el.appendChild(b);
+    }
+    (r.type==='chat'?chatl:cl).appendChild(el);
+  });
+
+  const r=room(S.active)||rooms[0];
+  document.getElementById('roomTitle').innerHTML = `${r.icon} ${esc(r.name)}`+(r.about?`<small>${esc(r.about)}</small>`:'');
+  document.getElementById('brandSub').textContent = ME.joined? `${ME.name} · ${S.members} чел.` : 'вход по коду класса';
+
+  const m=document.getElementById('msgs'); m.innerHTML='';
+  if(S.pinned && S.pinned.room===r.id){
+    const p=document.createElement('div'); p.className='pinBanner';
+    p.innerHTML=`<span>📌</span><div><b>Закреплено:</b> ${esc(S.pinned.text)}</div>`;
+    m.appendChild(p);
+  }
+  const items = r.type==='chat' ? r.messages : r.posts;
+  if(!items.length){
+    const e=document.createElement('div'); e.className='empty';
+    e.innerHTML=`<div class="big">${r.type==='chat'?'💬':'📢'}</div><div>Здесь пока пусто.<br>Напиши первым — или закрепи сообщение сверху.</div>`;
+    m.appendChild(e);
+  } else {
+    items.forEach(it=>m.appendChild(renderMsg(it, r.type==='chat')));
+    // polls & anon questions
+    if(r.type==='chat'){
+      S.polls.filter(p=>p.room===r.id).forEach(p=>m.appendChild(renderPoll(p)));
+      S.anonQs.filter(q=>!q.answered).forEach(q=>m.appendChild(renderAnon(q)));
+    }
+  }
+  m.scrollTop=m.scrollHeight;
+}
+
+function renderMsg(it, isChat){
+  const el=document.createElement('div');
+  const mine = it.authorId===ME.id;
+  el.className='msg'+(mine?' me':'')+(it.anon?' anon':'');
+  const name = it.anon ? 'Анонимно' : (it.authorName||'Участник');
+  const role = (!it.anon && it.role)?`<span class="role">${esc(it.role)}</span>`:'';
+  let att='';
+  if(it.image){ att=`<div class="att"><img src="${it.image}">${it.fileName?esc(it.fileName):''}</div>`; }
+  el.innerHTML=`<div class="av" style="background:${avColor(it.authorId||'anon')}">${it.avatar&&it.avatar.startsWith('data:')?'<img src="'+it.avatar+'" style="width:100%;height:100%;object-fit:cover">':esc(initials(name))}</div>
+   <div class="bubble"><div class="meta"><span class="who">${esc(name)}</span>${role}${it.system?'<span>• '+esc(it.system)+'</span>':''}</div>
+   <div class="text">${esc(it.text)}</div>${att}<div class="t">${time(it.ts)}</div></div>`;
+  return el;
+}
+function renderPoll(p){
+  const el=document.createElement('div');
+  const total=p.options.reduce((s,o)=>s+(o.votes||[]).includes(ME.id)?s+1:s,0);
+  const voted=p.options.some(o=>(o.votes||[]).includes(ME.id));
+  const totalVotes=p.options.reduce((s,o)=>s+(o.votes||[]).length,0);
+  el.className='msg'; el.style.flexDirection='column'; el.style.maxWidth='460px';
+  el.innerHTML=`<div class="anonCard"><div class="q">📊 ${esc(p.q)}</div>${
+    p.options.map((o,i)=>{
+      const c=(o.votes||[]).length, pct=totalVotes?Math.round(c/totalVotes*100):0;
+      if(voted) return `<div class="res">${esc(o.t)}<div class="bar"><i style="width:${pct}%"></i></div><div class="pct"><span>${c} голос(ов)</span><span>${pct}%</span></div></div>`;
+      return `<div class="opt" data-i="${i}"><span class="mk"></span><span>${esc(o.t)}</span><span class="pc">${c}</span></div>`;
+    }).join('')
+  }</div>`;
+  el.querySelectorAll('.opt').forEach(o=>o.onclick=()=>{
+    const i=+o.dataset.i; p.options[i].votes=p.options[i].votes||[]; p.options[i].votes.push(ME.id);
+    save(); render();
+  });
+  return el;
+}
+function renderAnon(q){
+  const el=document.createElement('div'); el.className='msg'; el.style.flexDirection='column'; el.style.maxWidth='460px';
+  el.innerHTML=`<div class="anonCard"><div class="q">🕵️ ${esc(q.q)}</div>
+    <textarea id="an_${q.id}" placeholder="Твой ответ (анонимно)…" style="width:100%;background:var(--bg);border:1px solid #30363d;color:var(--fg);border-radius:9px;padding:8px 10px;outline:none;min-height:60px"></textarea>
+    <button class="btn" style="margin-top:8px" data-a="${q.id}">Отправить анонимно</button>
+    ${(q.answers||[]).length?'<div style="margin-top:10px">'+(q.answers||[]).map(a=>`<div class="ans">${esc(a.text)}<div class="an">— анонимно</div></div>`).join('')+'</div>':''}
+  </div>`;
+  el.querySelector('button').onclick=()=>{
+    const t=el.querySelector('textarea').value.trim(); if(!t)return;
+    q.answers=q.answers||[]; q.answers.push({text:t,ts:Date.now()}); q.answered=true; save(); render();
+  };
+  return el;
+}
+
+function delChannel(id){
+  const c=S.channels.find(x=>x.id===id); if(!c)return;
+  if(!confirm('Удалить канал «'+c.name+'»? Все сообщения в нём пропадут.'))return;
+  S.channels=S.channels.filter(x=>x.id!==id);
+  if(S.active===id)S.active='g_main';
+  save(); render();
+}
+
+/* ---------------- actions ---------------- */
+function addMsg(){
+  const inp=document.getElementById('input'); const t=inp.value.trim();
+  if(!t)return;
+  const r=room(S.active); if(!r)return;
+  const msg={id:'m'+Date.now(),authorId:ME.id,authorName:ME.name,role:ME.role,text:t,ts:Date.now(),anon:S.anon};
+  if(r.type==='chat'){ r.messages.push(msg); S.chats.find(c=>c.id===r.id).messages=r.messages; }
+  else { r.posts.push(msg); S.channels.find(c=>c.id===r.id).posts=r.posts; }
+  inp.value=''; inp.style.height='auto'; S.anon=false; document.getElementById('anonToggle').classList.remove('on');
+  save(); render();
+}
+document.getElementById('send').onclick=addMsg;
+document.getElementById('input').addEventListener('input',e=>{
+  e.target.style.height='auto'; e.target.style.height=Math.min(e.target.scrollHeight,140)+'px';
+  document.getElementById('send').disabled=!e.target.value.trim();
+});
+document.getElementById('input').addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();addMsg();}});
+document.getElementById('anonToggle').onclick=()=>{S.anon=!S.anon;document.getElementById('anonToggle').classList.toggle('on',S.anon);};
+document.getElementById('hamb').onclick=()=>document.getElementById('side').classList.toggle('open');
+function closeSide(){document.getElementById('side').classList.remove('open');}
+document.getElementById('btnPin').onclick=()=>{
+  const r=room(S.active); const t=prompt('Текст для закрепления в «'+r.name+'»:');
+  if(t===null)return; S.pinned={room:r.id,text:t}; save(); render();
+};
+document.getElementById('btnPoll').onclick=()=>{
+  const r=room(S.active);
+  openModal(`<h3>Новый опрос</h3><p class="sub">Вопрос и варианты. Класс увидит его в чате.</p>
+    <div class="field"><label>Вопрос</label><input id="pq" placeholder="Когда сдаём проект?"></div>
+    <div class="field"><label>Варианты (каждый с новой строки)</label><textarea id="po" rows="4" placeholder="В понедельник&#10;В среду"></textarea></div>
+    <button class="btn" id="pok">Опубликовать</button>`);
+  document.getElementById('pok').onclick=()=>{
+    const q=document.getElementById('pq').value.trim(); const raw=document.getElementById('po').value.trim();
+    if(!q||!raw)return;
+    const opts=raw.split('\n').map(s=>s.trim()).filter(Boolean).map(t=>({t,votes:[]}));
+    S.polls.push({id:'p'+Date.now(),room:r.id,q,options:opts,ts:Date.now()});
+    save(); closeModal(); render();
+  };
+};
+document.getElementById('btnAnon').onclick=()=>{
+  const r=room(S.active);
+  openModal(`<h3>Анонимный вопрос</h3><p class="sub">Класс ответит, не зная автора. Только админ увидит, кто задал.</p>
+    <div class="field"><label>Вопрос</label><textarea id="aq" rows="3" placeholder="Что спросить у класса?"></textarea></div>
+    <button class="btn" id="aok">Задать анонимно</button>`);
+  document.getElementById('aok').onclick=()=>{
+    const q=document.getElementById('aq').value.trim(); if(!q)return;
+    S.anonQs.push({id:'a'+Date.now(),q,answers:[],answered:false,authorId:ME.id,room:r.id});
+    save(); closeModal(); render();
+  };
+};
+document.getElementById('btnMe').onclick=()=>{
+  openModal(`<h3>Профиль</h3><p class="sub">Так тебя видят в классе.</p>
+    <div style="display:flex;gap:14px;align-items:center;margin-bottom:14px">
+      <div id="pav" style="width:64px;height:64px;border-radius:50%;background:${avColor(ME.id)};display:grid;place-items:center;overflow:hidden;font-weight:700;font-size:22px">${ME.avatar?'<img src="'+ME.avatar+'" style="width:100%;height:100%;object-fit:cover">':esc(initials(ME.name))}</div>
+      <div style="flex:1">
+        <input type="file" id="pf" accept="image/*" style="font-size:13px">
+        <div style="font-size:12px;color:var(--mut);margin-top:4px">JPG или PNG — обрежется в круг</div>
+      </div>
+    </div>
+    <div class="field"><label>Имя</label><input id="pname" value="${esc(ME.name)}"></div>
+    <label class="check"><input type="checkbox" id="padmin" ${ME.role==='admin'?'checked':''}> Я админ класса (могу удалять каналы)</label>
+    <button class="btn" id="psave">Сохранить</button>
+    <button class="btn ghost" id="pclose">Закрыть</button>`);
+  document.getElementById('pf').onchange=e=>{
+    const f=e.target.files&&e.target.files[0]; if(!f)return;
+    const r=new FileReader();
+    r.onload=()=>{ const img=new Image();
+      img.onload=()=>{ const c=document.createElement('canvas'); c.width=c.height=160;
+        const x=c.getContext('2d'); const s=Math.min(img.width,img.height);
+        x.drawImage(img,(img.width-s)/2,(img.height-s)/2,s,s,0,0,160,160);
+        ME.avatar=c.toDataURL('image/jpeg',0.85); save();
+        document.getElementById('pav').innerHTML='<img src="'+ME.avatar+'" style="width:100%;height:100%;object-fit:cover">';
+      }; img.src=r.result; };
+    r.readAsDataURL(f);
+  };
+  document.getElementById('psave').onclick=()=>{
+    const n=document.getElementById('pname').value.trim(); if(n)ME.name=n;
+    ME.role=document.getElementById('padmin').checked?'admin':'Ученик';
+    save(); closeModal(); render();
+  };
+  document.getElementById('pclose').onclick=closeModal;
+};
+document.getElementById('btnInfo').onclick=()=>{
+  const r=room(S.active);
+  openModal(`<h3>${r.icon} ${esc(r.name)}</h3><p class="sub">${esc(r.about||'')}</p>
+    <p style="font-size:13px;color:var(--mut)">Участников класса: <b>${S.members}</b><br>В канале можно читать и комментировать, но удалять посты может только админ.</p>
+    ${(r.type==='channel'&&ME.role==='admin')?'<button class="btn danger" id="mdel">Удалить канал</button>':''}
+    <button class="btn ghost" id="mclose">Закрыть</button>`);
+  document.getElementById('mclose').onclick=closeModal;
+  const del=document.getElementById('mdel');
+  if(del) del.onclick=()=>{ delChannel(r.id); closeModal(); };
+};
+document.getElementById('addCh').onclick=()=>{
+  openModal(`<h3>Новый канал</h3><p class="sub">Канал — односторонняя лента: пишет автор, читают все.</p>
+    <div class="field"><label>Название</label><input id="cn" placeholder="например: спорт"></div>
+    <div class="field"><label>Описание</label><input id="cd" placeholder="о чём канал"></div>
+    <div class="field"><label>Иконка</label><input id="ci" value="✨" maxlength="2"></div>
+    <button class="btn" id="cok">Создать</button>`);
+  document.getElementById('cok').onclick=()=>{
+    const n=document.getElementById('cn').value.trim().toLowerCase().replace(/\s+/g,'_');
+    if(!n)return;
+    S.channels.push({id:'c_'+Date.now(),name:n,icon:document.getElementById('ci').value.trim()||'✨',about:document.getElementById('cd').value.trim(),posts:[]});
+    save(); closeModal(); render();
+  };
+};
+function openModal(html){
+  const host=document.getElementById('modalHost');
+  host.innerHTML=`<div class="mask" id="mask"><div class="modal">${html}</div></div>`;
+  host.querySelector('.mask').onclick=e=>{if(e.target.id==='mask')closeModal();};
+}
+function closeModal(){document.getElementById('modalHost').innerHTML='';}
+
+/* ---------------- join screen ---------------- */
+function showJoin(){
+  document.body.innerHTML=`<div style="height:100dvh;display:grid;place-items:center;padding:18px;background:
+    radial-gradient(1000px 500px at 20% -10%, #1f6feb22, transparent),
+    radial-gradient(800px 500px at 110% 110%, #a371f722, transparent), var(--bg)">
+    <div style="width:min(400px,100%);background:var(--bg2);border:1px solid #30363d;border-radius:20px;padding:26px;box-shadow:var(--shadow)">
+      <div style="width:52px;height:52px;border-radius:15px;background:linear-gradient(135deg,#2f81f7,#a371f7);display:grid;place-items:center;font-size:24px;font-weight:800;margin-bottom:14px">Т2</div>
+      <h1 style="margin:0 0 4px;font-size:22px">Телеграмм2</h1>
+      <p style="margin:0 0 20px;color:var(--mut);font-size:14px">Закрытая соцсеть твоего класса. Войди по коду, который дал староста или админ.</p>
+      <div class="field"><label>Код класса</label><input id="jc" inputmode="numeric" placeholder="6 цифр" maxlength="6" id="jcInp"></div>
+      <div class="field"><label>Твоё имя</label><input id="jn" placeholder="Как тебя показывать классу"></div>
+      <label class="check" id="adminChkWrap"><input type="checkbox" id="jadmin"> Я админ класса (удаление каналов, закреп)</label>
+      <button class="btn" id="jb">Войти в класс</button>
+      <div class="copy">Прототип · данные хранятся только в этом браузере</div>
+      <div style="margin-top:14px;padding:10px 12px;border-radius:10px;background:#3fb95014;border:1px solid #3fb95033;font-size:12px;color:var(--mut);line-height:1.45">
+        👑 <b style="color:var(--ok)">Администратор</b> вводит код <b style="color:var(--fg);letter-spacing:.5px">453045</b> — права на удаление каналов и закреп выдаются автоматически.
+      </div>
+    </div></div>`;
+  document.getElementById('jb').onclick=()=>{
+    const c=document.getElementById('jc').value.trim(), n=document.getElementById('jn').value.trim();
+    const isAdminCode = (c===ADMIN_CODE);
+    if(c!==CLASS_CODE && !isAdminCode){ alert('Неверный код класса. Подсказка в демо: '+CLASS_CODE); return; }
+    if(!n){ alert('Введи имя'); return; }
+    if(window.__TG__){
+      try{
+        var u=window.__TG__.initDataUnsafe && window.__TG__.initDataUnsafe.user;
+        if(u){ ME.id='tg_'+u.id; ME.tgId=u.id; if(u.first_name) ME.name=(u.first_name+' '+(u.last_name||'')).trim()||ME.name; }
+      }catch(e){}
+    }
+    ME.name=n; ME.joined=true;
+    if(isAdminCode) ME.role='admin';
+    else ME.role=document.getElementById('jadmin').checked?'admin':'Ученик';
+    S.anonQs.push({id:'a'+Date.now(),q:'Что хочется изменить в нашем классе?',answers:[],answered:false,authorId:ME.id,room:'g_main'});
+    save(); location.reload();
+  };
+  document.getElementById('jc').addEventListener('input',e=>{
+    e.target.value=e.target.value.replace(/\D/g,'');
+    var w=document.getElementById('adminChkWrap');
+    if(w) w.style.display = (e.target.value===ADMIN_CODE) ? 'flex' : 'none';
+  });
+}
+(function(){
+  var tg=window.__TG__;
+  if(tg && !ME.joined){
+    try{
+      var u=tg.initDataUnsafe && tg.initDataUnsafe.user;
+      if(u){
+        var nm=((u.first_name||'')+' '+(u.last_name||'')).trim();
+        ME.id='tg_'+u.id; ME.tgId=u.id; ME.joined=true; ME.role='Ученик';
+        if(nm) ME.name=nm;
+        save();
+      }
+    }catch(e){}
+  }
+})();
+if(!ME.joined) showJoin(); else render();
+</script>
+<div id="installBar" style="display:none;position:fixed;left:12px;right:12px;bottom:12px;z-index:9999;background:var(--bg3);border:1px solid #21262d;border-radius:14px;padding:12px 14px;box-shadow:var(--shadow)">
+  <div style="display:flex;gap:12px;align-items:center">
+    <img src="icon-192.png" width="42" height="42" style="border-radius:10px">
+    <div style="flex:1"><div style="font-weight:600;font-size:14px">Установить Телеграмм2</div>
+    <div style="font-size:12px;color:var(--mut)">Иконка на рабочем столе, офлайн-режим</div></div>
+    <button class="btn" id="instBtn" style="padding:8px 14px">Установить</button>
+    <button class="iconBtn" id="instX">✕</button>
+  </div>
+</div>
+<script>
+(function(){
+  var deferred=null, dismissed=localStorage.getItem('t2_installed')==='1';
+  function isIOS(){var u=navigator.userAgent;return /iPhone|iPad|iPod/.test(u)||(/Macintosh/.test(u)&&navigator.maxTouchPoints>1);}
+  function standalone(){return (window.matchMedia&&matchMedia('(display-mode: standalone)').matches)||navigator.standalone===true;}
+  function show(){var b=document.getElementById('installBar'),hi=document.getElementById('installHint');
+    if(dismissed||standalone())return;
+    if(deferred){if(b)b.style.display='block';}
+    if(hi) hi.style.display='block';
+  }
+  function hintText(){
+    var el=document.getElementById('installHintTxt'); if(!el)return;
+    var inTG=/Telegram|TelegramBot|TelegramWeb/i.test(navigator.userAgent);
+    if(inTG) el.innerHTML='<b style="color:#f85149">Ты открыл внутри Telegram.</b> Тут «На экран Домой» не работает. Нажми «Скопировать ссылку», открой Safari и вставь в адресную строку.';
+    else if(isIOS()) el.innerHTML='В Safari: нажми кнопку «Поделиться» (стрелка вверх) внизу экрана → прокрути вниз → «На экран „Домой“».';
+    else el.textContent='В Chrome нажми меню (⋮) справа вверху и выбери «Установить приложение» / «Добавить на главный экран».';
+  }
+  function wire(){
+    var b=document.getElementById('instBtn'),x=document.getElementById('instX'),bar=document.getElementById('installBar');
+    var b2=document.getElementById('installBtn2'),x2=document.getElementById('installX2'),hi=document.getElementById('installHint');
+    if(b) b.onclick=function(){ if(!deferred)return; deferred.prompt(); deferred.userChoice.then(function(){localStorage.setItem('t2_installed','1');bar.style.display='none';deferred=null;}); };
+    if(x) x.onclick=function(){bar.style.display='none';};
+    if(b2) b2.onclick=function(){hintText(); if(deferred){deferred.prompt();deferred.userChoice.then(function(){localStorage.setItem('t2_installed','1');hi.style.display='none';deferred=null;});} else {window.scrollTo(0,0); var t=document.getElementById('installHintTxt'); if(t){t.style.color='var(--acc2)';t.style.fontWeight='600';} } };
+    if(x2) x2.onclick=function(){hi.style.display='none';};
+    var rl=document.getElementById('btnReload');
+    if(rl) rl.onclick=function(){ rl.textContent='⏳'; setTimeout(function(){ location.reload(); },500); };
+    var top=document.getElementById('btnInstallTop');
+    if(top) top.onclick=function(){ openSide&&openSide(); var hi=document.getElementById('installHint'); if(hi){hi.style.display='block';hi.scrollIntoView({behavior:'smooth'});} };
+    var cp=document.getElementById('copyLink');
+    if(cp) cp.onclick=function(){
+      var url=location.href.split('#')[0];
+      if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(url).then(function(){cp.textContent='✅ Скопировано';setTimeout(function(){cp.textContent='📋 Скопировать ссылку';},1800);});}
+      else {var ta=document.createElement('textarea');ta.value=url;document.body.appendChild(ta);ta.select();try{document.execCommand('copy');cp.textContent='✅ Скопировано';}catch(e){}document.body.removeChild(ta);setTimeout(function(){cp.textContent='📋 Скопировать ссылку';},1800);}
+    };
+    hintText(); show();
+    var bi=document.getElementById('browserInfo');
+    if(bi){
+      var ua=navigator.userAgent, inTG=/Telegram|TelegramBot/i.test(ua);
+      var isIOSx=/iPhone|iPad|iPod/.test(ua)||(/Macintosh/.test(ua)&&navigator.maxTouchPoints>1);
+      var isAn=/Android/.test(ua);
+      var isChrome=/Chrome|CriOS/.test(ua)&&!/Edg/.test(ua);
+      var nm = inTG?'Telegram (встроенный браузер)': isIOSx?'iPhone / iPad': isAn?'Android': isChrome?'Chrome':'другой браузер';
+      bi.innerHTML='Сейчас ты открываешь в: <b style="color:var(--acc2)">'+nm+'</b>'+(inTG?'<br>→ Установка тут невозможна. Нажми «Скопировать ссылку» и открой в Safari.':'');
+    }
+    if(standalone()){var hh=document.getElementById('installHint');if(hh)hh.style.display='none';}
+  }
+  document.addEventListener('DOMContentLoaded',wire);
+  window.addEventListener('beforeinstallprompt',function(e){e.preventDefault();deferred=e;show();});
+  if('serviceWorker' in navigator){
+    window.addEventListener('load',function(){
+      navigator.serviceWorker.register('sw.js?v=4').then(function(reg){
+        reg.addEventListener('updatefound',function(){
+          var sw2=reg.installing; if(!sw2)return;
+          sw2.addEventListener('statechange',function(){
+            if(sw2.state==='installed' && navigator.serviceWorker.controller){
+              sw2.postMessage('SKIP_WAITING');
+              setTimeout(function(){ location.reload(); },500);
+            }
+          });
+        });
+      }).catch(function(){});
+      setInterval(function(){ navigator.serviceWorker.getRegistration().then(function(r){ if(r) r.update(); }); }, 60000);
+    });
+  }
+})();
+</script>
+</body>
+</html>
