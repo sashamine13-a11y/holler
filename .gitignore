@@ -53,6 +53,11 @@ server.log
 # Skills directory
 /skills/
 # Secrets — NEVER commit
+
+# Secrets — NEVER commit real .env files
 .env
 .env.local
 .env.production
+.env.*.local
+# Но .env.example нужен как шаблон
+!.env.example
