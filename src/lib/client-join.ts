@@ -1,22 +1,17 @@
 /**
- * Клиентская проверка кода класса для статического хостинга (Cloudflare Pages).
+ * Client-side code verification for static hosting (Cloudflare Pages).
  *
- * ВНИМАНИЕ: это компромисс. На статическом хостинге нет сервера, поэтому
- * коды проверяются на клиенте через NEXT_PUBLIC_* env-переменные.
- * Это означает, что коды видны в JS-бандле — любой пользователь может их
- * найти в DevTools. Это НЕ настоящая безопасность.
+ * WARNING: On static hosting there's no server, so codes are checked on the client
+ * via NEXT_PUBLIC_* env variables. This means codes ARE visible in the JS bundle —
+ * anyone can find them in DevTools. This is NOT real security.
  *
- * Для реальной защиты нужен serverless-бэкенд:
- * - Cloudflare Workers (бесплатно, 100k запросов/день)
- * - Vercel Functions
- * - Supabase Edge Functions
+ * For real protection, use a Cloudflare Worker or Vercel Function.
  *
- * Переменные окружения (задаются в Cloudflare Pages dashboard):
- * - NEXT_PUBLIC_CLASS_CODE — код класса (роль member)
- * - NEXT_PUBLIC_ADMIN_CODE — код админа (роль admin)
+ * Env variables (set in Cloudflare Pages dashboard):
+ * - NEXT_PUBLIC_CLASS_CODE — regular user code (member role)
+ * - NEXT_PUBLIC_ADMIN_CODE — admin code (admin role)
  *
- * Используйте timingSafeEqual-подобную проверку (через constant-time comparison)
- * чтобы минимизировать timing-атаки, хотя на клиенте это слабая защита.
+ * Uses constant-time comparison to mitigate timing attacks (weak on client).
  */
 
 function safeEqual(a: string, b: string): boolean {
@@ -36,26 +31,26 @@ export interface JoinResult {
 }
 
 export async function joinClass(code: string, name: string): Promise<JoinResult> {
-  // Имитация сетевой задержки для UX
+  // Simulate network delay for UX
   await new Promise(resolve => setTimeout(resolve, 300));
 
   const cleanName = (name || '').trim().slice(0, 32);
   if (!cleanName) {
-    return { ok: false, error: 'Введите имя' };
+    return { ok: false, error: 'Enter your name' };
   }
 
   const classCode = process.env.NEXT_PUBLIC_CLASS_CODE || '';
   const adminCode = process.env.NEXT_PUBLIC_ADMIN_CODE || '';
 
   if (!classCode || !adminCode) {
-    return { ok: false, error: 'Сервер не настроен' };
+    return { ok: false, error: 'Server not configured' };
   }
 
   const isClass = safeEqual(code, classCode);
   const isAdmin = safeEqual(code, adminCode);
 
   if (!isClass && !isAdmin) {
-    return { ok: false, error: 'Неверный код класса' };
+    return { ok: false, error: 'Invalid access code' };
   }
 
   return {

@@ -1,4 +1,8 @@
-// Патчит src/components/client-app.tsx для статического хостинга.
+// Патчит src/components/client-app.tsx для статического хостинга (Cloudflare Pages).
+// Заменяет:
+//   - fetch('/api/join') → joinClass() (client-side проверка)
+// Ably НЕ stub'им — он работает на static hosting (через NEXT_PUBLIC_ABLY_KEY).
+
 import { readFileSync, writeFileSync } from 'node:fs';
 
 const FILE = 'src/components/client-app.tsx';
@@ -6,18 +10,15 @@ const content = readFileSync(FILE, 'utf8');
 
 let patched = content;
 
-// 1. Находим последний импорт (строка, заканчивающаяся на `';` или `";`)
-//    и вставляем наш импорт после неё.
+// 1. Добавляем импорт joinClass после последнего импорта.
 if (!content.includes('joinClass')) {
   const lines = content.split('\n');
   let insertAfter = -1;
   for (let i = 0; i < lines.length; i++) {
     const trimmed = lines[i].trim();
-    // Импорт заканчивается, если строка оканчивается на `;` и содержит `from `
     if (trimmed.includes('from ') && (trimmed.endsWith("';") || trimmed.endsWith('";'))) {
       insertAfter = i;
     }
-    // Останавливаемся, когда дошли до первого не-import кода (не пустая, не комментарий, не продолжение)
     if (insertAfter !== -1 && trimmed !== '' && !trimmed.startsWith('//') && !trimmed.startsWith('/*') && !trimmed.startsWith('*') && !trimmed.includes('from ')) {
       break;
     }
@@ -32,7 +33,7 @@ if (!content.includes('joinClass')) {
   console.log('⚠️  joinClass already imported');
 }
 
-// 2. Заменяем handleJoin
+// 2. Заменяем handleJoin: fetch('/api/join') → joinClass()
 const oldHandleJoin = `  const handleJoin = async (code: string, name: string): Promise<boolean> => {
     try {
       const res = await fetch('/api/join', {
@@ -42,16 +43,16 @@ const oldHandleJoin = `  const handleJoin = async (code: string, name: string): 
       });
       const data = await res.json();
       if (!res.ok || !data.ok) {
-        toast.error(data.error || 'Ошибка входа');
+        toast.error(data.error || 'Login error');
         return false;
       }
       const user: User = { id: uid('u'), name: data.user.name, role: data.user.role };
       setState(prev => ({ ...prev, user }));
       setShowJoin(false);
-      toast.success(\`Добро пожаловать, \${user.name}!\`);
+      toast.success(\`Welcome, \${user.name}!\`);
       return true;
     } catch {
-      toast.error('Сеть недоступна');
+      toast.error('Network unavailable');
       return false;
     }
   };`;
@@ -60,40 +61,27 @@ const newHandleJoin = `  const handleJoin = async (code: string, name: string): 
     try {
       const result = await joinClass(code, name);
       if (!result.ok || !result.user) {
-        toast.error(result.error || 'Ошибка входа');
+        toast.error(result.error || 'Login error');
         return false;
       }
       const user: User = { id: uid('u'), name: result.user.name, role: result.user.role };
       setState(prev => ({ ...prev, user }));
       setShowJoin(false);
-      toast.success(\`Добро пожаловать, \${user.name}!\`);
+      toast.success(\`Welcome, \${user.name}!\`);
       return true;
     } catch {
-      toast.error('Сеть недоступна');
+      toast.error('Network unavailable');
       return false;
     }
   };`;
 
 if (patched.includes(oldHandleJoin)) {
   patched = patched.replace(oldHandleJoin, newHandleJoin);
-  console.log('✅ handleJoin patched');
+  console.log('✅ handleJoin patched (fetch → joinClass)');
 } else {
-  console.log('⚠️  handleJoin not found');
-}
-
-// 3. WebSocket-хук: на статическом хостинге нет WS, делаем no-op.
-const oldUseSocket = `  const { socket, isConnected, onlineMembers } = useSocket({ user: state.user });`;
-const newUseSocket = `  // На статическом хостинге WebSocket недоступен — заглушка
-  const socket = null;
-  const isConnected = false;
-  const onlineMembers: OnlineMember[] = [];`;
-
-if (patched.includes(oldUseSocket)) {
-  patched = patched.replace(oldUseSocket, newUseSocket);
-  console.log('✅ useSocket stubbed');
-} else {
-  console.log('⚠️  useSocket not found');
+  console.log('⚠️  handleJoin not found (already patched?)');
 }
 
 writeFileSync(FILE, patched);
 console.log('✅ Patch applied to', FILE);
+console.log('ℹ️  Ably useRealtime hook is NOT stubbed — it works on static hosting via NEXT_PUBLIC_ABLY_KEY');
