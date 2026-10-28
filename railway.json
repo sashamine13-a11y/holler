@@ -1,0 +1,48 @@
+# Railway — конфигурация для динамического хостинга
+# https://docs.railway.app/deploy/config-as-code
+#
+# Railway даёт $5 бесплатного кредита в месяц при регистрации через GitHub.
+# Этого хватает примерно на 3 недели активного использования (24/7).
+# После исчерпания кредита — нужно добавить карту или подождать следующий месяц.
+#
+# ВСЁ БЕЗ БАНКОВСКОЙ КАРТЫ для старта.
+
+services:
+  # ========================================================================
+  # Основное Next.js приложение
+  # ========================================================================
+  - name: klasschat
+    source: .
+    builder:
+      type: nixpacks
+      config:
+        # Устанавливаем зависимости и собираем Next.js
+        installCommand: bun install
+        buildCommand: bun run build
+        startCommand: bun run start
+    # Railway автоматически предоставляет PORT
+    env:
+      NODE_ENV: production
+      # Секретные коды — НЕ видны в клиентском бандле
+      # Вводятся в Railway dashboard → Variables
+      CLASS_CODE: ${CLASS_CODE}
+      ADMIN_CODE: ${ADMIN_CODE}
+      # URL WebSocket-сервиса (Railway автоматически подставит)
+      NEXT_PUBLIC_WS_URL: ${klasschat-ws.RAILWAY_PUBLIC_DOMAIN}
+    healthcheck:
+      path: /
+      interval: 30s
+      timeout: 5s
+
+  # ========================================================================
+  # WebSocket mini-service для real-time
+  # ========================================================================
+  - name: klasschat-ws
+    source: ./mini-services/klasschat-ws
+    builder:
+      type: nixpacks
+      config:
+        installCommand: bun install
+        startCommand: bun run start
+    env:
+      NODE_ENV: production
