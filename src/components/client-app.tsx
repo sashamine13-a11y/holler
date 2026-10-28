@@ -18,11 +18,12 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { toast } from 'sonner';
+import { useSocket, type OnlineMember } from '@/hooks/use-socket';
 import {
   Send, Plus, Pin, BarChart3, EyeOff, Trash2, Info, User as UserIcon,
   Menu as MenuIcon, LogOut, ImagePlus, Hash, MessageSquare, MoreVertical,
   Search, ChevronRight, Settings, Megaphone, BookOpen, ShoppingBag, Sparkles,
-  CheckCircle2, Circle, X, Users,
+  CheckCircle2, Circle, X, Users, AlertCircle, Sun, Moon, Wifi, WifiOff,
 } from 'lucide-react';
 
 // ============================================================================
@@ -231,8 +232,13 @@ export default function ClientApp() {
   const [pendingImage, setPendingImage] = useState<string | undefined>();
   const [modalMode, setModalMode] = useState<ModalMode>(null);
   const [searchQuery, setSearchQuery] = useState('');
+  // Sidebar tab: 'rooms' (каналы и чаты) | 'members' (список онлайн-участников)
+  const [sidebarTab, setSidebarTab] = useState<'rooms' | 'members'>('rooms');
   const fileInputRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  // WebSocket-хук для реального времени
+  const { socket, isConnected, onlineMembers } = useSocket({ user: state.user });
 
   useEffect(() => {
     saveState(state);
@@ -241,6 +247,78 @@ export default function ClientApp() {
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [state.rooms, state.active]);
+
+  // ===========================================================================
+  // WebSocket: подписка на входящие события
+  // ===========================================================================
+  useEffect(() => {
+    if (!socket) return;
+
+    const onMessageNew = (payload: { roomId: string; message: Message }) => {
+      if (!payload?.message) return;
+      const msg = payload.message;
+      setState(prev => ({
+        ...prev,
+        rooms: prev.rooms.map(r =>
+          r.id === payload.roomId
+            ? { ...r, messages: [...r.messages, msg] }
+            : r,
+        ),
+      }));
+    };
+
+    const onPollNew = (payload: { poll: Poll }) => {
+      if (!payload?.poll) return;
+      setState(prev => ({
+        ...prev,
+        polls: prev.polls.find(p => p.id === payload.poll.id)
+          ? prev.polls
+          : [...prev.polls, payload.poll],
+      }));
+    };
+
+    const onPollVote = (payload: { pollId: string; optionIndex: number; voterId: string }) => {
+      if (!payload?.pollId) return;
+      setState(prev => ({
+        ...prev,
+        polls: prev.polls.map(p => {
+          if (p.id !== payload.pollId) return p;
+          if (p.options.some(o => o.votes.includes(payload.voterId))) return p;
+          return {
+            ...p,
+            options: p.options.map((o, i) =>
+              i === payload.optionIndex
+                ? { ...o, votes: [...o.votes, payload.voterId] }
+                : o,
+            ),
+          };
+        }),
+      }));
+    };
+
+    const onPinUpdate = (payload: { pinned: Pinned | null }) => {
+      setState(prev => ({ ...prev, pinned: payload.pinned ?? null }));
+    };
+
+    const onRoomUpdate = () => {
+      // Уведомляем пользователя что список комнат мог измениться
+      toast('Список комнат обновлён');
+    };
+
+    socket.on('message:new', onMessageNew);
+    socket.on('poll:new', onPollNew);
+    socket.on('poll:vote', onPollVote);
+    socket.on('pin:update', onPinUpdate);
+    socket.on('room:update', onRoomUpdate);
+
+    return () => {
+      socket.off('message:new', onMessageNew);
+      socket.off('poll:new', onPollNew);
+      socket.off('poll:vote', onPollVote);
+      socket.off('pin:update', onPinUpdate);
+      socket.off('room:update', onRoomUpdate);
+    };
+  }, [socket]);
 
   // ===========================================================================
   // Auth
@@ -302,6 +380,8 @@ export default function ClientApp() {
       ),
       anon: false,
     }));
+    // Broadcast через WebSocket
+    socket?.emit('message:new', { roomId: activeRoom.id, message: msg });
     setInputValue('');
     setPendingImage(undefined);
   };
@@ -342,12 +422,15 @@ export default function ClientApp() {
       toast.error('Введите текст');
       return;
     }
-    setState(prev => ({ ...prev, pinned: { room: activeRoom.id, text: clean, ts: Date.now() } }));
+    const pinned: Pinned = { room: activeRoom.id, text: clean, ts: Date.now() };
+    setState(prev => ({ ...prev, pinned }));
+    socket?.emit('pin:update', { pinned });
     toast('Сообщение закреплено');
   };
 
   const unpin = () => {
     setState(prev => ({ ...prev, pinned: null }));
+    socket?.emit('pin:update', { pinned: null });
     toast('Закреп удалён');
   };
 
@@ -371,6 +454,7 @@ export default function ClientApp() {
       authorId: state.user.id,
     };
     setState(prev => ({ ...prev, polls: [...prev.polls, poll] }));
+    socket?.emit('poll:new', { poll });
     toast.success('Опрос опубликован');
   };
 
@@ -389,6 +473,7 @@ export default function ClientApp() {
         };
       }),
     }));
+    socket?.emit('poll:vote', { pollId, optionIndex: optIdx, voterId: state.user.id });
   };
 
   const askAnon = (q: string) => {
@@ -543,6 +628,10 @@ export default function ClientApp() {
           user={state.user}
           onLogout={handleLogout}
           onProfile={() => setModalMode('profile')}
+          onlineMembers={onlineMembers}
+          isConnected={isConnected}
+          activeTab={sidebarTab}
+          onTabChange={setSidebarTab}
         />
 
         <main className="flex-1 flex flex-col min-w-0">
@@ -800,8 +889,16 @@ function Sidebar(props: {
   user: User;
   onLogout: () => void;
   onProfile: () => void;
+  onlineMembers: OnlineMember[];
+  isConnected: boolean;
+  activeTab: 'rooms' | 'members';
+  onTabChange: (tab: 'rooms' | 'members') => void;
 }) {
-  const { channels, chats, active, searchQuery, onSearchChange, onSelect, onAddChannel, onDeleteRoom, isAdmin, open, onClose, user, onLogout, onProfile } = props;
+  const {
+    channels, chats, active, searchQuery, onSearchChange, onSelect, onAddChannel,
+    onDeleteRoom, isAdmin, open, onClose, user, onLogout, onProfile,
+    onlineMembers, isConnected, activeTab, onTabChange,
+  } = props;
 
   return (
     <>
@@ -813,7 +910,7 @@ function Sidebar(props: {
           fixed md:static inset-y-0 left-0 z-50 transition-transform
           ${open ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}`}
       >
-        {/* Brand */}
+        {/* Brand + connection status */}
         <div className="p-4 border-b border-border flex items-center gap-3">
           <div
             className="size-10 rounded-xl flex items-center justify-center font-extrabold text-lg shrink-0"
@@ -824,78 +921,119 @@ function Sidebar(props: {
           <div className="min-w-0 flex-1">
             <div className="font-bold leading-tight truncate">КлассChat</div>
             <div className="text-xs text-muted-foreground truncate flex items-center gap-1">
-              <Users className="size-3" /> 27 участников
+              {isConnected ? (
+                <><Wifi className="size-3 text-green-500" /> онлайн: {onlineMembers.length}</>
+              ) : (
+                <><WifiOff className="size-3 text-destructive" /> нет связи</>
+              )}
             </div>
           </div>
+          <ThemeToggle />
         </div>
 
-        {/* Search */}
-        <div className="p-3 border-b border-border">
-          <div className="relative">
-            <Search className="size-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              value={searchQuery}
-              onChange={(e) => onSearchChange(e.target.value)}
-              placeholder="Поиск по комнатам"
-              className="pl-9 h-9"
-            />
-          </div>
+        {/* Tabs */}
+        <div className="flex border-b border-border">
+          <button
+            type="button"
+            onClick={() => onTabChange('rooms')}
+            className={`flex-1 px-3 py-2.5 text-sm font-medium transition-colors flex items-center justify-center gap-1.5
+              ${activeTab === 'rooms'
+                ? 'text-foreground border-b-2 border-primary'
+                : 'text-muted-foreground hover:text-foreground'}`}
+          >
+            <MessageSquare className="size-3.5" /> Комнаты
+          </button>
+          <button
+            type="button"
+            onClick={() => onTabChange('members')}
+            className={`flex-1 px-3 py-2.5 text-sm font-medium transition-colors flex items-center justify-center gap-1.5
+              ${activeTab === 'members'
+                ? 'text-foreground border-b-2 border-primary'
+                : 'text-muted-foreground hover:text-foreground'}`}
+          >
+            <Users className="size-3.5" /> Участники
+            {onlineMembers.length > 0 && (
+              <Badge variant="secondary" className="text-[10px] px-1 py-0 h-4 tabular-nums">
+                {onlineMembers.length}
+              </Badge>
+            )}
+          </button>
         </div>
 
-        {/* Rooms list */}
-        <div className="flex-1 overflow-y-auto scroll-thin p-2">
-          {/* Channels section */}
-          <div className="flex items-center justify-between px-2 py-2">
-            <span className="text-xs uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
-              <Megaphone className="size-3" /> Каналы
-            </span>
-            {isAdmin && (
-              <Button variant="ghost" size="icon" className="size-6" onClick={onAddChannel} aria-label="Создать канал">
-                <Plus className="size-4" />
-              </Button>
-            )}
-          </div>
-          <div className="flex flex-col gap-0.5 mb-3">
-            {channels.length === 0 && (
-              <div className="text-xs text-muted-foreground px-3 py-2">Нет каналов</div>
-            )}
-            {channels.map(c => (
-              <RoomItem
-                key={c.id}
-                room={c}
-                active={c.id === active}
-                onClick={() => onSelect(c.id)}
-                onDelete={onDeleteRoom}
-              />
-            ))}
-          </div>
+        {/* Tab content */}
+        {activeTab === 'rooms' ? (
+          <>
+            {/* Search */}
+            <div className="p-3 border-b border-border">
+              <div className="relative">
+                <Search className="size-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  value={searchQuery}
+                  onChange={(e) => onSearchChange(e.target.value)}
+                  placeholder="Поиск по комнатам"
+                  className="pl-9 h-9"
+                />
+              </div>
+            </div>
 
-          {/* Chats section */}
-          <div className="flex items-center justify-between px-2 py-2">
-            <span className="text-xs uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
-              <MessageSquare className="size-3" /> Чаты
-            </span>
-            {isAdmin && (
-              <Button variant="ghost" size="icon" className="size-6" onClick={onAddChannel} aria-label="Создать чат">
-                <Plus className="size-4" />
-              </Button>
-            )}
-          </div>
-          <div className="flex flex-col gap-0.5">
-            {chats.length === 0 && (
-              <div className="text-xs text-muted-foreground px-3 py-2">Нет чатов</div>
-            )}
-            {chats.map(c => (
-              <RoomItem
-                key={c.id}
-                room={c}
-                active={c.id === active}
-                onClick={() => onSelect(c.id)}
-                onDelete={onDeleteRoom}
-              />
-            ))}
-          </div>
-        </div>
+            {/* Rooms list */}
+            <div className="flex-1 overflow-y-auto scroll-thin p-2">
+              {/* Channels section */}
+              <div className="flex items-center justify-between px-2 py-2">
+                <span className="text-xs uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+                  <Megaphone className="size-3" /> Каналы
+                </span>
+                {isAdmin && (
+                  <Button variant="ghost" size="icon" className="size-6" onClick={onAddChannel} aria-label="Создать канал">
+                    <Plus className="size-4" />
+                  </Button>
+                )}
+              </div>
+              <div className="flex flex-col gap-0.5 mb-3">
+                {channels.length === 0 && (
+                  <div className="text-xs text-muted-foreground px-3 py-2">Нет каналов</div>
+                )}
+                {channels.map(c => (
+                  <RoomItem
+                    key={c.id}
+                    room={c}
+                    active={c.id === active}
+                    onClick={() => onSelect(c.id)}
+                    onDelete={onDeleteRoom}
+                  />
+                ))}
+              </div>
+
+              {/* Chats section */}
+              <div className="flex items-center justify-between px-2 py-2">
+                <span className="text-xs uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+                  <MessageSquare className="size-3" /> Чаты
+                </span>
+                {isAdmin && (
+                  <Button variant="ghost" size="icon" className="size-6" onClick={onAddChannel} aria-label="Создать чат">
+                    <Plus className="size-4" />
+                  </Button>
+                )}
+              </div>
+              <div className="flex flex-col gap-0.5">
+                {chats.length === 0 && (
+                  <div className="text-xs text-muted-foreground px-3 py-2">Нет чатов</div>
+                )}
+                {chats.map(c => (
+                  <RoomItem
+                    key={c.id}
+                    room={c}
+                    active={c.id === active}
+                    onClick={() => onSelect(c.id)}
+                    onDelete={onDeleteRoom}
+                  />
+                ))}
+              </div>
+            </div>
+          </>
+        ) : (
+          <MembersList members={onlineMembers} currentUserId={user.id} isConnected={isConnected} />
+        )}
 
         {/* User footer — кликабельный профиль */}
         <div className="p-3 border-t border-border">
@@ -931,6 +1069,75 @@ function Sidebar(props: {
   );
 }
 
+// ============================================================================
+// MembersList — реальный список онлайн-участников
+// ============================================================================
+
+function MembersList(props: { members: OnlineMember[]; currentUserId: string; isConnected: boolean }) {
+  const { members, currentUserId, isConnected } = props;
+  // Сортируем: админы сверху, потом по имени
+  const sorted = [...members].sort((a, b) => {
+    if (a.role === 'admin' && b.role !== 'admin') return -1;
+    if (a.role !== 'admin' && b.role === 'admin') return 1;
+    return a.name.localeCompare(b.name, 'ru');
+  });
+
+  return (
+    <div className="flex-1 overflow-y-auto scroll-thin p-2">
+      <div className="px-2 py-2 flex items-center justify-between">
+        <span className="text-xs uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+          <Users className="size-3" /> Онлайн сейчас
+        </span>
+        <span className="text-xs text-muted-foreground tabular-nums">{members.length}</span>
+      </div>
+
+      {!isConnected && (
+        <div className="px-3 py-4 text-center text-xs text-muted-foreground">
+          <WifiOff className="size-6 mx-auto mb-2 opacity-50" />
+          Подключение к серверу…
+        </div>
+      )}
+
+      {isConnected && members.length === 0 && (
+        <div className="px-3 py-4 text-center text-xs text-muted-foreground">
+          <Users className="size-6 mx-auto mb-2 opacity-50" />
+          Пока никто не в сети
+        </div>
+      )}
+
+      {sorted.map(m => {
+        const isMe = m.userId === currentUserId;
+        return (
+          <div
+            key={m.userId}
+            className="flex items-center gap-2 px-2 py-2 rounded-lg text-sm hover:bg-muted/40 transition-colors"
+          >
+            <div className="relative shrink-0">
+              <Avatar user={{ id: m.userId, name: m.name, avatar: m.avatar }} size={32} />
+              <span
+                className="absolute -bottom-0.5 -right-0.5 size-3 rounded-full bg-green-500 border-2 border-card"
+                aria-label="онлайн"
+              />
+            </div>
+            <div className="min-w-0 flex-1">
+              <div className="font-medium truncate">
+                {m.name}
+                {isMe && <span className="text-xs text-muted-foreground ml-1.5">(вы)</span>}
+              </div>
+              <div className="text-[11px] text-muted-foreground flex items-center gap-1">
+                {m.role === 'admin' && (
+                  <Badge variant="secondary" className="text-[9px] px-1 py-0 h-3">АДМИН</Badge>
+                )}
+                <span>в сети с {formatTime(m.joinedAt)}</span>
+              </div>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function RoomItem(props: { room: Room; active: boolean; onClick: () => void; onDelete?: () => void; }) {
   const { room, active, onClick, onDelete } = props;
   const Icon = room.kind === 'channel' ? Megaphone : MessageSquare;
@@ -950,9 +1157,6 @@ function RoomItem(props: { room: Room; active: boolean; onClick: () => void; onD
           <div className="text-[11px] text-muted-foreground truncate">{room.about}</div>
         )}
       </div>
-      {room.messages.length > 0 && (
-        <span className="text-xs text-muted-foreground shrink-0 tabular-nums">{room.messages.length}</span>
-      )}
       {onDelete && (
         <Button
           variant="ghost"
@@ -1192,28 +1396,75 @@ function JoinScreen(props: { onJoin: (code: string, name: string) => Promise<boo
   const [code, setCode] = useState('');
   const [name, setName] = useState('');
   const [loading, setLoading] = useState(false);
+  // Состояние инпутов: 'idle' | 'error' | 'success'
+  const [codeState, setCodeState] = useState<'idle' | 'error' | 'success'>('idle');
+  const [nameState, setNameState] = useState<'idle' | 'error' | 'success'>('idle');
+  const [codeMsg, setCodeMsg] = useState<string>('');
+  const [nameMsg, setNameMsg] = useState<string>('');
 
   const submit = async () => {
     if (loading) return;
+    // Сбрасываем состояния
+    setCodeState('idle');
+    setNameState('idle');
+    setCodeMsg('');
+    setNameMsg('');
+
+    if (!code) {
+      setCodeState('error');
+      setCodeMsg('Введите код класса');
+      return;
+    }
+    if (!name.trim()) {
+      setNameState('error');
+      setNameMsg('Введите имя');
+      return;
+    }
+
     setLoading(true);
-    await onJoin(code, name);
+    const ok = await onJoin(code, name);
     setLoading(false);
+
+    if (!ok) {
+      setCodeState('error');
+      setCodeMsg('Неверный код класса');
+    } else {
+      setCodeState('success');
+      setCodeMsg('Код принят');
+      setNameState('success');
+      setNameMsg('Вход выполнен');
+    }
   };
+
+  const codeInputClass = [
+    'transition-colors',
+    codeState === 'error' ? 'border-destructive bg-destructive/10 focus-visible:ring-destructive' :
+    codeState === 'success' ? 'border-green-500 bg-green-500/10 focus-visible:ring-green-500' : '',
+  ].join(' ');
+
+  const nameInputClass = [
+    'transition-colors',
+    nameState === 'error' ? 'border-destructive bg-destructive/10 focus-visible:ring-destructive' :
+    nameState === 'success' ? 'border-green-500 bg-green-500/10 focus-visible:ring-green-500' : '',
+  ].join(' ');
 
   return (
     <div className="min-h-[100dvh] flex items-center justify-center p-4">
       <Card className="w-full max-w-md p-6 glass">
-        <div className="flex items-center gap-3 mb-5">
-          <div
-            className="size-12 rounded-xl flex items-center justify-center font-extrabold text-xl shrink-0"
-            style={{ background: 'linear-gradient(135deg, #f5a623, #e94e6a)', color: '#0a0e1a' }}
-          >
-            К
+        <div className="flex items-center justify-between mb-5">
+          <div className="flex items-center gap-3">
+            <div
+              className="size-12 rounded-xl flex items-center justify-center font-extrabold text-xl shrink-0"
+              style={{ background: 'linear-gradient(135deg, #f5a623, #e94e6a)', color: '#0a0e1a' }}
+            >
+              К
+            </div>
+            <div>
+              <h1 className="text-xl font-bold leading-tight">КлассChat</h1>
+              <p className="text-xs text-muted-foreground">Закрытая соцсеть вашего класса</p>
+            </div>
           </div>
-          <div>
-            <h1 className="text-xl font-bold leading-tight">КлассChat</h1>
-            <p className="text-xs text-muted-foreground">Закрытая соцсеть вашего класса</p>
-          </div>
+          <ThemeToggle />
         </div>
 
         <div className="space-y-3">
@@ -1225,20 +1476,56 @@ function JoinScreen(props: { onJoin: (code: string, name: string) => Promise<boo
               placeholder="6 цифр"
               maxLength={6}
               value={code}
-              onChange={(e) => setCode(e.target.value.replace(/\D/g, ''))}
+              className={codeInputClass}
+              onChange={(e) => {
+                setCode(e.target.value.replace(/\D/g, ''));
+                setCodeState('idle');
+                setCodeMsg('');
+              }}
               onKeyDown={(e) => e.key === 'Enter' && submit()}
+              aria-invalid={codeState === 'error'}
+              aria-describedby={codeMsg ? 'jc-msg' : undefined}
             />
+            {codeMsg && (
+              <p
+                id="jc-msg"
+                className={`text-xs mt-1.5 flex items-center gap-1 font-medium ${
+                  codeState === 'error' ? 'text-destructive' : 'text-green-600 dark:text-green-400'
+                }`}
+              >
+                {codeState === 'error' ? <AlertCircle className="size-3.5" /> : <CheckCircle2 className="size-3.5" />}
+                {codeMsg}
+              </p>
+            )}
           </div>
           <div>
             <Label htmlFor="jn">Ваше имя</Label>
             <Input
               id="jn"
-              placeholder="Как вас видеть classmates"
+              placeholder="Как вас видеть одноклассникам"
               maxLength={MAX_NAME_LEN}
               value={name}
-              onChange={(e) => setName(e.target.value)}
+              className={nameInputClass}
+              onChange={(e) => {
+                setName(e.target.value);
+                setNameState('idle');
+                setNameMsg('');
+              }}
               onKeyDown={(e) => e.key === 'Enter' && submit()}
+              aria-invalid={nameState === 'error'}
+              aria-describedby={nameMsg ? 'jn-msg' : undefined}
             />
+            {nameMsg && (
+              <p
+                id="jn-msg"
+                className={`text-xs mt-1.5 flex items-center gap-1 font-medium ${
+                  nameState === 'error' ? 'text-destructive' : 'text-green-600 dark:text-green-400'
+                }`}
+              >
+                {nameState === 'error' ? <AlertCircle className="size-3.5" /> : <CheckCircle2 className="size-3.5" />}
+                {nameMsg}
+              </p>
+            )}
           </div>
           <Button className="w-full" onClick={submit} disabled={loading || !code || !name.trim()}>
             {loading ? 'Проверка…' : 'Войти в класс'}
@@ -1250,6 +1537,48 @@ function JoinScreen(props: { onJoin: (code: string, name: string) => Promise<boo
         </div>
       </Card>
     </div>
+  );
+}
+
+// ============================================================================
+// ThemeToggle — переключатель светлой/тёмной темы
+// ============================================================================
+
+function ThemeToggle() {
+  const [mounted, setMounted] = useState(false);
+  const [theme, setTheme] = useState<'light' | 'dark'>('dark');
+
+  useEffect(() => {
+    setMounted(true);
+    const stored = document.documentElement.classList.contains('dark') ? 'dark' : 'light';
+    setTheme(stored);
+  }, []);
+
+  const toggle = () => {
+    const next = theme === 'dark' ? 'light' : 'dark';
+    setTheme(next);
+    if (next === 'dark') {
+      document.documentElement.classList.add('dark');
+    } else {
+      document.documentElement.classList.remove('dark');
+    }
+    try { localStorage.setItem('theme', next); } catch {}
+  };
+
+  if (!mounted) {
+    return <div className="size-9" />;
+  }
+
+  return (
+    <Button
+      variant="ghost"
+      size="icon"
+      onClick={toggle}
+      aria-label={theme === 'dark' ? 'Включить светлую тему' : 'Включить тёмную тему'}
+      className="shrink-0"
+    >
+      {theme === 'dark' ? <Sun className="size-4" /> : <Moon className="size-4" />}
+    </Button>
   );
 }
 

@@ -46,7 +46,7 @@
 :root {
   --radius: 0.875rem;
 
-  /* Светлая тема (резерв, по умолчанию используем dark) */
+  /* Светлая тема */
   --background: oklch(0.99 0.005 60);
   --foreground: oklch(0.18 0.02 280);
   --card: oklch(1 0 0);
@@ -128,6 +128,16 @@
       radial-gradient(1100px 600px at 12% -8%, oklch(0.78 0.18 60 / 0.10), transparent 60%),
       radial-gradient(900px 600px at 110% 110%, oklch(0.65 0.2 350 / 0.10), transparent 60%);
     background-attachment: fixed;
+  }
+  .dark body {
+    background-image:
+      radial-gradient(1100px 600px at 12% -8%, oklch(0.78 0.18 60 / 0.10), transparent 60%),
+      radial-gradient(900px 600px at 110% 110%, oklch(0.65 0.2 350 / 0.10), transparent 60%);
+  }
+  :root:not(.dark) body {
+    background-image:
+      radial-gradient(1100px 600px at 12% -8%, oklch(0.62 0.21 35 / 0.08), transparent 60%),
+      radial-gradient(900px 600px at 110% 110%, oklch(0.65 0.2 350 / 0.06), transparent 60%);
   }
 }
 
