@@ -1396,57 +1396,35 @@ function JoinScreen(props: { onJoin: (code: string, name: string) => Promise<boo
   const [code, setCode] = useState('');
   const [name, setName] = useState('');
   const [loading, setLoading] = useState(false);
-  // Состояние инпутов: 'idle' | 'error' | 'success'
-  const [codeState, setCodeState] = useState<'idle' | 'error' | 'success'>('idle');
-  const [nameState, setNameState] = useState<'idle' | 'error' | 'success'>('idle');
+  // Текстовое сообщение под полем (без подсветки самого инпута)
   const [codeMsg, setCodeMsg] = useState<string>('');
   const [nameMsg, setNameMsg] = useState<string>('');
 
   const submit = async () => {
     if (loading) return;
-    // Сбрасываем состояния
-    setCodeState('idle');
-    setNameState('idle');
     setCodeMsg('');
     setNameMsg('');
 
     if (!code) {
-      setCodeState('error');
       setCodeMsg('Введите код класса');
       return;
     }
     if (!name.trim()) {
-      setNameState('error');
       setNameMsg('Введите имя');
       return;
     }
 
     setLoading(true);
+    // onJoin вернёт true при успехе и сам переключит экран —
+    // в этом случае мы ничего не делаем (JoinScreen размонтируется).
     const ok = await onJoin(code, name);
-    setLoading(false);
-
     if (!ok) {
-      setCodeState('error');
+      setLoading(false);
       setCodeMsg('Неверный код класса');
-    } else {
-      setCodeState('success');
-      setCodeMsg('Код принят');
-      setNameState('success');
-      setNameMsg('Вход выполнен');
     }
+    // При успехе не сбрасываем loading и не меняем state —
+    // родитель размонтирует этот экран.
   };
-
-  const codeInputClass = [
-    'transition-colors',
-    codeState === 'error' ? 'border-destructive bg-destructive/10 focus-visible:ring-destructive' :
-    codeState === 'success' ? 'border-green-500 bg-green-500/10 focus-visible:ring-green-500' : '',
-  ].join(' ');
-
-  const nameInputClass = [
-    'transition-colors',
-    nameState === 'error' ? 'border-destructive bg-destructive/10 focus-visible:ring-destructive' :
-    nameState === 'success' ? 'border-green-500 bg-green-500/10 focus-visible:ring-green-500' : '',
-  ].join(' ');
 
   return (
     <div className="min-h-[100dvh] flex items-center justify-center p-4">
@@ -1476,24 +1454,19 @@ function JoinScreen(props: { onJoin: (code: string, name: string) => Promise<boo
               placeholder="6 цифр"
               maxLength={6}
               value={code}
-              className={codeInputClass}
               onChange={(e) => {
                 setCode(e.target.value.replace(/\D/g, ''));
-                setCodeState('idle');
                 setCodeMsg('');
               }}
               onKeyDown={(e) => e.key === 'Enter' && submit()}
-              aria-invalid={codeState === 'error'}
               aria-describedby={codeMsg ? 'jc-msg' : undefined}
             />
             {codeMsg && (
               <p
                 id="jc-msg"
-                className={`text-xs mt-1.5 flex items-center gap-1 font-medium ${
-                  codeState === 'error' ? 'text-destructive' : 'text-green-600 dark:text-green-400'
-                }`}
+                className="text-xs mt-1.5 flex items-center gap-1 font-medium text-destructive"
               >
-                {codeState === 'error' ? <AlertCircle className="size-3.5" /> : <CheckCircle2 className="size-3.5" />}
+                <AlertCircle className="size-3.5" />
                 {codeMsg}
               </p>
             )}
@@ -1505,24 +1478,19 @@ function JoinScreen(props: { onJoin: (code: string, name: string) => Promise<boo
               placeholder="Как вас видеть одноклассникам"
               maxLength={MAX_NAME_LEN}
               value={name}
-              className={nameInputClass}
               onChange={(e) => {
                 setName(e.target.value);
-                setNameState('idle');
                 setNameMsg('');
               }}
               onKeyDown={(e) => e.key === 'Enter' && submit()}
-              aria-invalid={nameState === 'error'}
               aria-describedby={nameMsg ? 'jn-msg' : undefined}
             />
             {nameMsg && (
               <p
                 id="jn-msg"
-                className={`text-xs mt-1.5 flex items-center gap-1 font-medium ${
-                  nameState === 'error' ? 'text-destructive' : 'text-green-600 dark:text-green-400'
-                }`}
+                className="text-xs mt-1.5 flex items-center gap-1 font-medium text-destructive"
               >
-                {nameState === 'error' ? <AlertCircle className="size-3.5" /> : <CheckCircle2 className="size-3.5" />}
+                <AlertCircle className="size-3.5" />
                 {nameMsg}
               </p>
             )}
