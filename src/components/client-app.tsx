@@ -351,11 +351,10 @@ export default function ClientApp() {
     toast('Закреп удалён');
   };
 
-  const createPoll = (q: string, optionsText: string) => {
+  const createPoll = (q: string, optionsArr: string[]) => {
     if (!activeRoom || !state.user) return;
     const cleanQ = sanitizeText(q, 200);
-    const opts = optionsText
-      .split('\n')
+    const opts = optionsArr
       .map(s => sanitizeText(s, 100))
       .filter(Boolean)
       .slice(0, 8);
@@ -1376,29 +1375,104 @@ function PinModal(props: { onClose: () => void; onPin: (text: string) => void; r
   );
 }
 
-function PollModal(props: { onClose: () => void; onCreate: (q: string, opts: string) => void }) {
+function PollModal(props: { onClose: () => void; onCreate: (q: string, opts: string[]) => void }) {
   const [q, setQ] = useState('');
-  const [opts, setOpts] = useState('');
+  const [opts, setOpts] = useState<string[]>(['', '']);
+  const MAX_OPTS = 8;
+
+  const updateOpt = (i: number, value: string) => {
+    setOpts(prev => prev.map((o, idx) => (idx === i ? value.slice(0, 100) : o)));
+  };
+  const addOpt = () => {
+    if (opts.length >= MAX_OPTS) return;
+    setOpts(prev => [...prev, '']);
+  };
+  const removeOpt = (i: number) => {
+    if (opts.length <= 2) return;
+    setOpts(prev => prev.filter((_, idx) => idx !== i));
+  };
+
+  const canPublish = q.trim().length > 0 && opts.filter(o => o.trim().length > 0).length >= 2;
+
+  const handlePublish = () => {
+    const cleanOpts = opts.map(o => o.trim()).filter(Boolean);
+    if (!q.trim() || cleanOpts.length < 2) return;
+    props.onCreate(q.trim(), cleanOpts);
+    props.onClose();
+  };
+
   return (
     <ModalShell
       title="Новый опрос"
       description="Вопрос и варианты ответа. Участники увидят опрос в чате."
       onClose={props.onClose}
       footer={
-        <Button onClick={() => { props.onCreate(q, opts); props.onClose(); }}>
+        <Button onClick={handlePublish} disabled={!canPublish}>
           Опубликовать
         </Button>
       }
     >
-      <div className="space-y-3">
+      <div className="space-y-4">
         <div>
           <Label htmlFor="pq">Вопрос</Label>
-          <Input id="pq" placeholder="Когда сдаём проект?" maxLength={200} value={q} onChange={(e) => setQ(e.target.value)} />
+          <Input
+            id="pq"
+            placeholder="Когда сдаём проект?"
+            maxLength={200}
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            autoFocus
+          />
         </div>
         <div>
-          <Label htmlFor="po">Варианты (каждый с новой строки)</Label>
-          <Textarea id="po" rows={4} placeholder={'В понедельник\nВ среду'} maxLength={800} value={opts} onChange={(e) => setOpts(e.target.value)} />
-          <p className="text-xs text-muted-foreground mt-1">Минимум 2 варианта, максимум 8.</p>
+          <div className="flex items-center justify-between mb-2">
+            <Label>Варианты ответа</Label>
+            <span className="text-xs text-muted-foreground tabular-nums">
+              {opts.length}/{MAX_OPTS}
+            </span>
+          </div>
+          <div className="space-y-2">
+            {opts.map((opt, i) => (
+              <div key={i} className="flex items-center gap-2">
+                <span className="text-xs text-muted-foreground tabular-nums w-5 text-right shrink-0">
+                  {i + 1}.
+                </span>
+                <Input
+                  value={opt}
+                  onChange={(e) => updateOpt(i, e.target.value)}
+                  placeholder={`Вариант ${i + 1}`}
+                  maxLength={100}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      if (i === opts.length - 1 && opts.length < MAX_OPTS) addOpt();
+                    }
+                  }}
+                />
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="size-9 shrink-0 text-muted-foreground"
+                  onClick={() => removeOpt(i)}
+                  disabled={opts.length <= 2}
+                  aria-label={`Удалить вариант ${i + 1}`}
+                >
+                  <X className="size-4" />
+                </Button>
+              </div>
+            ))}
+          </div>
+          <div className="flex items-center justify-between mt-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={addOpt}
+              disabled={opts.length >= MAX_OPTS}
+            >
+              <Plus className="size-4 mr-1" /> Добавить вариант
+            </Button>
+            <p className="text-xs text-muted-foreground">Минимум 2, максимум {MAX_OPTS}.</p>
+          </div>
         </div>
       </div>
     </ModalShell>
