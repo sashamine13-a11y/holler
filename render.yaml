@@ -1,0 +1,61 @@
+# Render Blueprint — конфигурация инфраструктуры как код
+# https://render.com/docs/blueprint-spec
+#
+# Этот файл описывает два сервиса:
+# 1. web — Next.js приложение (основной сайт)
+# 2. ws — WebSocket mini-service (real-time синхронизация)
+#
+# Оба сервиса запускаются из одного репозитория.
+# Render даёт бесплатный тариф для Web Services (засыпают через 15 мин простоя).
+
+services:
+  # ========================================================================
+  # Основное Next.js приложение
+  # ========================================================================
+  - type: web
+    name: klasschat
+    runtime: node
+    plan: free
+    region: frankfurt  # ближе к РФ/СНГ
+    branch: main
+    rootDir: .
+    buildCommand: bun install && bun run build
+    startCommand: bun run start
+    healthCheckPath: /
+    autoDeploy: true
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        value: file:/data/custom.db
+      # Секретные коды — НЕ видны в клиентском бандле
+      - key: CLASS_CODE
+        sync: false  # вводится вручную в dashboard
+      - key: ADMIN_CODE
+        sync: false  # вводится вручную в dashboard
+      # URL WebSocket-сервиса (Render автоматически подставит URL)
+      - key: NEXT_PUBLIC_WS_URL
+        fromService:
+          type: pserv
+          name: klasschat-ws
+          property: hostport
+    disk:
+      name: data
+      mountPath: /data
+      sizeGB: 1  # минимальный диск для SQLite
+
+  # ========================================================================
+  # WebSocket mini-service для real-time
+  # ========================================================================
+  - type: pserv  # private service — не доступен снаружи, только из klasschat
+    name: klasschat-ws
+    runtime: node
+    plan: free
+    region: frankfurt
+    branch: main
+    rootDir: mini-services/klasschat-ws
+    buildCommand: bun install
+    startCommand: bun run start
+    envVars:
+      - key: NODE_ENV
+        value: production

@@ -34,29 +34,49 @@ export function useSocket({ user }: UseSocketOptions) {
     if (!user) return;
 
     // Подключаемся к WebSocket mini-service.
-    // В проде (через Caddy) — используем тот же origin + query XTransformPort=3003.
-    // В dev (напрямую к Next.js на :3000) — fallback на ws://localhost:3003.
-    const isDev = typeof window !== 'undefined' && window.location.port === '3000';
-    const socketInstance = isDev
-      ? io('http://localhost:3003', {
-          path: '/',
-          transports: ['websocket', 'polling'],
-          forceNew: true,
-          reconnection: true,
-          reconnectionAttempts: 10,
-          reconnectionDelay: 1500,
-          timeout: 10000,
-        })
-      : io({
-          path: '/',
-          transports: ['websocket', 'polling'],
-          forceNew: true,
-          reconnection: true,
-          reconnectionAttempts: 10,
-          reconnectionDelay: 1500,
-          timeout: 10000,
-          query: { XTransformPort: '3003' },
-        });
+    // Три режима:
+    // 1. Production на Render: NEXT_PUBLIC_WS_URL указывает на klasschat-ws сервис
+    // 2. Dev на localhost:3000: напрямую к localhost:3003
+    // 3. Preview через Caddy: тот же origin + XTransformPort=3003
+    const wsUrl = process.env.NEXT_PUBLIC_WS_URL;
+    const isLocalDev = typeof window !== 'undefined' && window.location.port === '3000';
+
+    let socketInstance: ReturnType<typeof io>;
+    if (wsUrl) {
+      // Production на Render — подключаемся к отдельному WS-сервису
+      socketInstance = io(wsUrl, {
+        path: '/',
+        transports: ['websocket', 'polling'],
+        forceNew: true,
+        reconnection: true,
+        reconnectionAttempts: 10,
+        reconnectionDelay: 1500,
+        timeout: 10000,
+      });
+    } else if (isLocalDev) {
+      // Локальная dev-разработка — напрямую к mini-service
+      socketInstance = io('http://localhost:3003', {
+        path: '/',
+        transports: ['websocket', 'polling'],
+        forceNew: true,
+        reconnection: true,
+        reconnectionAttempts: 10,
+        reconnectionDelay: 1500,
+        timeout: 10000,
+      });
+    } else {
+      // Preview-среда через Caddy
+      socketInstance = io({
+        path: '/',
+        transports: ['websocket', 'polling'],
+        forceNew: true,
+        reconnection: true,
+        reconnectionAttempts: 10,
+        reconnectionDelay: 1500,
+        timeout: 10000,
+        query: { XTransformPort: '3003' },
+      });
+    }
 
     setSocket(socketInstance);
 

@@ -166,9 +166,10 @@ io.on('connection', (socket) => {
 // Start
 // ============================================================================
 
-const PORT = 3003
-httpServer.listen(PORT, () => {
-  console.log(`[klasschat-ws] WebSocket server running on port ${PORT}`)
+// Render и большинство платформ предоставляют PORT через env
+const PORT = Number(process.env.PORT) || 3003
+httpServer.listen(PORT, '0.0.0.0', () => {
+  console.log(`[klasschat-ws] WebSocket server running on 0.0.0.0:${PORT}`)
 })
 
 process.on('SIGTERM', () => {
