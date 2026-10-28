@@ -1,6 +1,0 @@
-# Cloudflare Pages — _redirects
-# Формат: source destination status_code
-
-# SPA fallback: все неизвестные пути → на index.html
-# (нужно для client-side routing Next.js)
-/*    /index.html   200
