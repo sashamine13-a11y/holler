@@ -213,3 +213,60 @@ Stage Summary:
 - Real members list with online status
 - Removed message count from room items
 - All 4 requested features implemented and verified
+
+---
+Task ID: 5
+Agent: main (Z.ai)
+Task: Add animations throughout the app
+
+Work Log:
+- Added 12+ keyframe animations to globals.css:
+  1. msg-in: messages appear with translateY + scale (was basic, now enhanced with cubic-bezier)
+  2. card-slide-in: polls/anon questions slide in from right
+  3. modal-pop: modals scale up + fade in
+  4. dropdown-in: dropdown menus slide down + scale
+  5. slide-down: pinned banner slides down from top
+  6. fade-in: date separators and empty states fade in
+  7. pulse-ring: green online dot pulses with ring effect (infinite)
+  8. avatar-pop: avatars scale in
+  9. typing-bounce: three dots bounce (for future typing indicator)
+  10. bar-fill: poll progress bars animate width from 0
+  11. send-pulse: send button pulses on activation
+  12. room-switch: room content fades+slides when switching rooms
+  13. sidebar-slide-in: mobile sidebar slides in
+  14. toast-slide: toasts slide in from right
+  15. connection-pulse: "no connection" icon pulses
+
+- Applied animation classes to components:
+  * ModalShell: added modal-pop class to DialogContent
+  * DropdownMenu: added dropdown-in class to DropdownMenuContent
+  * Pinned banner: added slide-down class
+  * PollCard: added card-slide-in class, bar-fill on progress bars
+  * AnonCard: added card-slide-in class
+  * MembersList: added pulse-ring to online dot
+  * RoomItem: added room-item class (hover translateX effect)
+  * Messages container: added room-switch class with key={state.active} to re-trigger on room change
+  * Date separator: added fade-in class
+  * Empty state: added fade-in class
+  * Connection indicator: added connection-pulse to WifiOff icon
+
+- Added smooth transitions for all interactive elements (buttons, inputs, textareas)
+- Added hover lift effect on button press (translateY(1px) on :active)
+- Added prefers-reduced-motion media query to disable animations for accessibility
+
+Verified via Agent Browser:
+- All 12 keyframe animations defined in CSS (checked via styleSheets API)
+- modal-pop class applied to DialogContent (confirmed via DOM inspection)
+- dropdown-in class applied to DropdownMenuContent
+- pulse-ring: 2 elements (online dots in members list)
+- room-item: 5 elements (all rooms in sidebar)
+- room-switch: 1 element (messages container, re-triggers on room change)
+- bar-fill: applied to poll progress bars
+- No runtime errors
+
+Stage Summary:
+- 15+ animations added throughout the app
+- Smooth transitions on all interactive elements
+- Accessibility: prefers-reduced-motion respected
+- All animations use cubic-bezier(0.16, 1, 0.3, 1) for natural feel
+- Screenshot: /home/z/my-project/download/klasschat_v6_animations.png

@@ -664,7 +664,7 @@ export default function ClientApp() {
                   <MoreVertical className="size-4" />
                 </Button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-52">
+              <DropdownMenuContent align="end" className="w-52 dropdown-in">
                 {pinned && (
                   <DropdownMenuItem onClick={unpin}>
                     <X className="size-4 mr-2" /> Открепить
@@ -702,7 +702,7 @@ export default function ClientApp() {
 
           {/* Pinned banner */}
           {pinned && (
-            <div className="glass border-b border-border px-3 sm:px-4 py-2 flex items-start gap-2 text-sm">
+            <div className="glass border-b border-border px-3 sm:px-4 py-2 flex items-start gap-2 text-sm slide-down">
               <Pin className="size-4 text-primary shrink-0 mt-0.5" />
               <div className="flex-1 min-w-0">
                 <span className="text-muted-foreground text-xs uppercase tracking-wide mr-2">Закреп</span>
@@ -716,9 +716,9 @@ export default function ClientApp() {
 
           {/* Messages */}
           <div className="flex-1 overflow-y-auto scroll-thin px-3 sm:px-4 py-4">
-            <div className="max-w-3xl mx-auto flex flex-col gap-3">
+            <div key={state.active} className="max-w-3xl mx-auto flex flex-col gap-3 room-switch">
               {groupedItems.length === 0 && roomPolls.length === 0 && roomAnonQs.length === 0 && (
-                <div className="text-center text-muted-foreground py-20">
+                <div className="text-center text-muted-foreground py-20 fade-in">
                   <MessageSquare className="size-10 mx-auto mb-3 opacity-40" />
                   <p className="text-sm font-medium">Здесь пока пусто</p>
                   <p className="text-xs mt-1">Напишите первым или закрепите сообщение</p>
@@ -727,7 +727,7 @@ export default function ClientApp() {
 
               {groupedItems.map((group, gi) => (
                 <div key={gi} className="flex flex-col gap-3">
-                  <div className="flex items-center gap-3 my-2">
+                  <div className="flex items-center gap-3 my-2 fade-in">
                     <div className="flex-1 h-px bg-border" />
                     <span className="text-xs text-muted-foreground uppercase tracking-wide">{group.date}</span>
                     <div className="flex-1 h-px bg-border" />
@@ -924,7 +924,7 @@ function Sidebar(props: {
               {isConnected ? (
                 <><Wifi className="size-3 text-green-500" /> онлайн: {onlineMembers.length}</>
               ) : (
-                <><WifiOff className="size-3 text-destructive" /> нет связи</>
+                <><WifiOff className="size-3 text-destructive connection-pulse" /> нет связи</>
               )}
             </div>
           </div>
@@ -1115,7 +1115,7 @@ function MembersList(props: { members: OnlineMember[]; currentUserId: string; is
             <div className="relative shrink-0">
               <Avatar user={{ id: m.userId, name: m.name, avatar: m.avatar }} size={32} />
               <span
-                className="absolute -bottom-0.5 -right-0.5 size-3 rounded-full bg-green-500 border-2 border-card"
+                className="absolute -bottom-0.5 -right-0.5 size-3 rounded-full bg-green-500 border-2 border-card pulse-ring"
                 aria-label="онлайн"
               />
             </div>
@@ -1143,7 +1143,7 @@ function RoomItem(props: { room: Room; active: boolean; onClick: () => void; onD
   const Icon = room.kind === 'channel' ? Megaphone : MessageSquare;
   return (
     <div
-      className={`group flex items-center gap-2 px-2 py-2 rounded-lg cursor-pointer text-sm transition-colors
+      className={`group room-item flex items-center gap-2 px-2 py-2 rounded-lg cursor-pointer text-sm
         ${active ? 'bg-primary/15 text-foreground' : 'hover:bg-muted/60 text-muted-foreground hover:text-foreground'}`}
       onClick={onClick}
       role="button"
@@ -1268,7 +1268,7 @@ function PollCard(props: { poll: Poll; currentUserId: string; onVote: (pollId: s
   const totalVotes = poll.options.reduce((s, o) => s + o.votes.length, 0);
 
   return (
-    <Card className="p-4 msg-in border-primary/20">
+    <Card className="p-4 msg-in card-slide-in border-primary/20">
       <div className="flex items-center gap-2 mb-1">
         <BarChart3 className="size-4 text-primary" />
         <span className="text-xs uppercase tracking-wide text-muted-foreground">Опрос</span>
@@ -1287,7 +1287,7 @@ function PollCard(props: { poll: Poll; currentUserId: string; onVote: (pollId: s
                   ${isMyVote ? 'border-primary' : 'border-border'}`}
               >
                 <div
-                  className={`absolute inset-y-0 left-0 transition-all
+                  className={`absolute inset-y-0 left-0 transition-all bar-fill
                     ${isMyVote ? 'bg-primary/20' : 'bg-muted/50'}`}
                   style={{ width: `${pct}%` }}
                 />
@@ -1344,7 +1344,7 @@ function AnonCard(props: { q: AnonQuestion; onAnswer: (id: string, text: string)
   const [text, setText] = useState('');
   const [showAnswer, setShowAnswer] = useState(false);
   return (
-    <Card className="p-4 msg-in border-purple-500/20 bg-purple-500/5">
+    <Card className="p-4 msg-in card-slide-in border-purple-500/20 bg-purple-500/5">
       <div className="flex items-center gap-2 mb-1">
         <EyeOff className="size-4 text-purple-400" />
         <span className="text-xs uppercase tracking-wide text-purple-400">Анонимный вопрос</span>
@@ -1563,7 +1563,7 @@ function ModalShell(props: {
 }) {
   return (
     <Dialog open onOpenChange={(o) => !o && props.onClose()}>
-      <DialogContent className="glass">
+      <DialogContent className="glass modal-pop">
         <DialogHeader>
           <DialogTitle>{props.title}</DialogTitle>
           {props.description && <DialogDescription>{props.description}</DialogDescription>}

@@ -161,9 +161,149 @@
 }
 .scroll-thin::-webkit-scrollbar-thumb:hover { background: var(--muted-foreground); }
 
-/* Subtle pulse for new messages */
+/* ============================================================
+   АНИМАЦИИ
+   ============================================================ */
+
+/* Появление сообщений — выезжает снизу с лёгким масштабом */
 @keyframes msg-in {
+  from { opacity: 0; transform: translateY(8px) scale(0.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+.msg-in { animation: msg-in 0.28s cubic-bezier(0.16, 1, 0.3, 1); }
+
+/* Появление карточек опросов/вопросов — выезжает справа */
+@keyframes card-slide-in {
+  from { opacity: 0; transform: translateX(20px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+.card-slide-in { animation: card-slide-in 0.35s cubic-bezier(0.16, 1, 0.3, 1); }
+
+/* Появление модальных окон — масштаб + прозрачность */
+@keyframes modal-pop {
+  0% { opacity: 0; transform: scale(0.92) translateY(10px); }
+  100% { opacity: 1; transform: scale(1) translateY(0); }
+}
+.modal-pop { animation: modal-pop 0.25s cubic-bezier(0.16, 1, 0.3, 1); }
+
+/* Появление выпадающего меню */
+@keyframes dropdown-in {
+  from { opacity: 0; transform: translateY(-4px) scale(0.96); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+.dropdown-in { animation: dropdown-in 0.18s cubic-bezier(0.16, 1, 0.3, 1); }
+
+/* Появление баннера закрепа — выезжает сверху */
+@keyframes slide-down {
+  from { opacity: 0; transform: translateY(-100%); max-height: 0; }
+  to { opacity: 1; transform: translateY(0); max-height: 80px; }
+}
+.slide-down { animation: slide-down 0.3s cubic-bezier(0.16, 1, 0.3, 1); }
+
+/* Появление сепаратора дат */
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+.fade-in { animation: fade-in 0.4s ease-out; }
+
+/* Пульсация зелёной точки онлайн */
+@keyframes pulse-ring {
+  0% { box-shadow: 0 0 0 0 oklch(0.7 0.2 145 / 0.7); }
+  70% { box-shadow: 0 0 0 6px oklch(0.7 0.2 145 / 0); }
+  100% { box-shadow: 0 0 0 0 oklch(0.7 0.2 145 / 0); }
+}
+.pulse-ring { animation: pulse-ring 2s infinite; }
+
+/* Появление аватара — лёгкое масштабирование */
+@keyframes avatar-pop {
+  from { opacity: 0; transform: scale(0.5); }
+  to { opacity: 1; transform: scale(1); }
+}
+.avatar-pop { animation: avatar-pop 0.3s cubic-bezier(0.16, 1, 0.3, 1); }
+
+/* Появление индикатора "печатает" — три точки */
+@keyframes typing-bounce {
+  0%, 60%, 100% { transform: translateY(0); opacity: 0.4; }
+  30% { transform: translateY(-4px); opacity: 1; }
+}
+.typing-dot { animation: typing-bounce 1.4s infinite; }
+.typing-dot:nth-child(2) { animation-delay: 0.2s; }
+.typing-dot:nth-child(3) { animation-delay: 0.4s; }
+
+/* Заполнение прогресс-бара опроса */
+@keyframes bar-fill {
+  from { width: 0; }
+}
+.bar-fill { animation: bar-fill 0.6s cubic-bezier(0.16, 1, 0.3, 1); }
+
+/* Появление кнопки отправки — лёгкая пульсация при активации */
+@keyframes send-pulse {
+  0% { transform: scale(1); }
+  50% { transform: scale(1.1); }
+  100% { transform: scale(1); }
+}
+.send-pulse { animation: send-pulse 0.3s ease-out; }
+
+/* Hover-эффект для комнат — лёгкое смещение вправо */
+.room-item {
+  transition: transform 0.18s cubic-bezier(0.16, 1, 0.3, 1), background-color 0.18s ease;
+}
+.room-item:hover {
+  transform: translateX(2px);
+}
+
+/* Появление sidebar на мобильных */
+@keyframes sidebar-slide-in {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(0); }
+}
+.sidebar-slide-in { animation: sidebar-slide-in 0.25s cubic-bezier(0.16, 1, 0.3, 1); }
+
+/* Появление содержимого комнаты при переключении */
+@keyframes room-switch {
   from { opacity: 0; transform: translateY(6px); }
   to { opacity: 1; transform: translateY(0); }
 }
-.msg-in { animation: msg-in 0.22s ease-out; }
+.room-switch { animation: room-switch 0.25s cubic-bezier(0.16, 1, 0.3, 1); }
+
+/* Появление toast-уведомлений — выезжает справа */
+@keyframes toast-slide {
+  from { opacity: 0; transform: translateX(40px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+.toast-slide { animation: toast-slide 0.3s cubic-bezier(0.16, 1, 0.3, 1); }
+
+/* Лёгкое мерцание для индикатора подключения */
+@keyframes connection-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
+}
+.connection-pulse { animation: connection-pulse 1.5s ease-in-out infinite; }
+
+/* Hover-эффект для кнопок — лёгкое поднятие */
+button:not(:disabled):active {
+  transform: translateY(1px);
+  transition: transform 0.08s ease;
+}
+
+/* Появление табов — подчёркивание выезжает */
+@keyframes tab-underline {
+  from { transform: scaleX(0); }
+  to { transform: scaleX(1); }
+}
+
+/* Плавный переход для всех интерактивных элементов */
+button, input, textarea, [role="button"] {
+  transition: background-color 0.18s ease, border-color 0.18s ease, color 0.18s ease, box-shadow 0.18s ease;
+}
+
+/* Уменьшаем анимации для пользователей с prefers-reduced-motion */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
