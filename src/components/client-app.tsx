@@ -19,6 +19,8 @@ import {
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { toast } from 'sonner';
 import { useSocket, type OnlineMember } from '@/hooks/use-socket';
+import { useAuth } from '@/hooks/use-auth';
+import { AuthScreen } from '@/components/auth-screen';
 import {
   Send, Plus, Pin, BarChart3, EyeOff, Trash2, Info, User as UserIcon,
   Menu as MenuIcon, LogOut, ImagePlus, Hash, MessageSquare, MoreVertical,
@@ -226,16 +228,40 @@ function saveState(s: AppState): void {
 
 export default function ClientApp() {
   const [state, setState] = useState<AppState>(() => loadState());
-  const [showJoin, setShowJoin] = useState(!state.user);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [inputValue, setInputValue] = useState('');
   const [pendingImage, setPendingImage] = useState<string | undefined>();
   const [modalMode, setModalMode] = useState<ModalMode>(null);
   const [searchQuery, setSearchQuery] = useState('');
-  // Sidebar tab: 'rooms' (channelы и чаты) | 'members' (список онлайн-участников)
+  // Sidebar tab: 'rooms' (channels and chats) | 'members' (online list)
   const [sidebarTab, setSidebarTab] = useState<'rooms' | 'members'>('rooms');
   const fileInputRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  // Auth via Supabase
+  const { user: authUser, loading: authLoading } = useAuth();
+
+  // Sync auth user with state.user
+  useEffect(() => {
+    if (authUser) {
+      setState(prev => {
+        if (prev.user && prev.user.id === authUser.id && prev.user.name === authUser.name) {
+          return prev;
+        }
+        return {
+          ...prev,
+          user: {
+            id: authUser.id,
+            name: authUser.name,
+            role: authUser.role,
+            avatar: authUser.avatar,
+          },
+        };
+      });
+    } else if (!authLoading) {
+      setState(prev => prev.user ? { ...prev, user: null } : prev);
+    }
+  }, [authUser, authLoading]);
 
   // WebSocket-хук для реального времени
   const { socket, isConnected, onlineMembers } = useSocket({ user: state.user });
@@ -347,9 +373,13 @@ export default function ClientApp() {
     }
   };
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    // Supabase signOut через useAuth
+    try {
+      const { supabase } = await import('@/lib/supabase');
+      if (supabase) await supabase.auth.signOut();
+    } catch {}
     setState(prev => ({ ...prev, user: null }));
-    setShowJoin(true);
     toast('Signed out');
   };
 
@@ -576,8 +606,18 @@ export default function ClientApp() {
   // Render
   // ===========================================================================
 
-  if (showJoin || !state.user) {
-    return <JoinScreen onJoin={handleJoin} />;
+  // Пока идёт загрузка auth — показываем спиннер
+  if (authLoading) {
+    return (
+      <div className="min-h-[100dvh] flex items-center justify-center">
+        <div className="text-muted-foreground text-sm">Loading…</div>
+      </div>
+    );
+  }
+
+  // Если нет пользователя — показываем AuthScreen
+  if (!state.user) {
+    return <AuthScreen onSuccess={() => {}} />;
   }
 
   const isAdmin = state.user.role === 'admin';
