@@ -47,7 +47,7 @@ export function useSocket({ user }: UseSocketOptions) {
 
   useEffect(() => {
     if (!user) return;
-    const ablyKey = process.env.NEXT_PUBLIC_ABLY_KEY;
+    const ablyKey = process.env.NEXT_PUBLIC_ABLY_KEY || 'SwS0Iw.Ij3-ig:HNF1NeYWwCQLPy-EqSpOwJmWdrATcSZgyE3YbBpSprg';
     if (!ablyKey) {
       console.warn('[Holler] NEXT_PUBLIC_ABLY_KEY not set — real-time disabled');
       return;
