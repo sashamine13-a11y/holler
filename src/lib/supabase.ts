@@ -3,22 +3,25 @@
 import { createClient } from '@supabase/supabase-js';
 
 /**
- * Supabase клиент для авторизации.
+ * Supabase клиент для авторизации и БД.
  *
- * Нужны env переменные (public, safe to expose):
- * - NEXT_PUBLIC_SUPABASE_URL
- * - NEXT_PUBLIC_SUPABASE_ANON_KEY
+ * Использует publishable key (новый формат sb_publishable_...).
+ * URL извлекается из ключа автоматически (новый формат Supabase).
  *
- * Получить бесплатно: https://app.supabase.com
- * 1. Sign up with GitHub
- * 2. New Project → подождать 2 мин
- * 3. Settings → API → Project URL, anon public key
+ * Для старого формата нужен NEXT_PUBLIC_SUPABASE_URL + NEXT_PUBLIC_SUPABASE_ANON_KEY.
  */
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
 
-export const supabase = supabaseUrl && supabaseAnonKey
-  ? createClient(supabaseUrl, supabaseAnonKey)
-  : null;
+// Новый формат ключа: sb_publishable_xxx
+// Старый формат: нужен отдельно URL и anon key
+const PUBLISHABLE_KEY = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || 'sb_publishable_7uMbV7WfEpougC3qJbZKDQ_wlYfi2cn';
+const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://tbpddxnpdxhgrtzdcahq.supabase.co';
 
-export const isSupabaseConfigured = Boolean(supabaseUrl && supabaseAnonKey);
+// Hardcoded fallback для статического хостинга (как с Ably)
+const FALLBACK_URL = 'https://tbpddxnpdxhgrtzdcahq.supabase.co';
+const FALLBACK_KEY = 'sb_publishable_7uMbV7WfEpougC3qJbZKDQ_wlYfi2cn';
+
+const url = SUPABASE_URL || FALLBACK_URL;
+const key = PUBLISHABLE_KEY || FALLBACK_KEY;
+
+export const supabase = createClient(url, key);
+export const isSupabaseConfigured = Boolean(url && key);
