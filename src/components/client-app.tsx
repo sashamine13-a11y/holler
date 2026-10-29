@@ -27,7 +27,7 @@ import {
 } from 'lucide-react';
 
 // ============================================================================
-// Типы
+// Typeы
 // ============================================================================
 
 type Role = 'member' | 'admin';
@@ -103,24 +103,24 @@ const MAX_MSG_LEN = 2000;
 const MAX_NAME_LEN = 32;
 const MAX_ABOUT_LEN = 120;
 
-// Текстовые категории вместо эмодзи
+// Textовые категории вместо эмодзи
 const CATEGORIES = [
-  { id: 'general', label: 'Общее' },
-  { id: 'announcements', label: 'Объявления' },
-  { id: 'study', label: 'Учёба' },
-  { id: 'life', label: 'Жизнь класса' },
-  { id: 'shop', label: 'Барахолка' },
-  { id: 'sport', label: 'Спорт' },
-  { id: 'creative', label: 'Творчество' },
-  { id: 'other', label: 'Другое' },
+  { id: 'general', label: 'General' },
+  { id: 'announcements', label: 'Announcements' },
+  { id: 'study', label: 'Study' },
+  { id: 'life', label: 'Class Life' },
+  { id: 'shop', label: 'Marketplace' },
+  { id: 'sport', label: 'Sport' },
+  { id: 'creative', label: 'Creative' },
+  { id: 'other', label: 'Other' },
 ] as const;
 
 const DEFAULT_ROOMS: Room[] = [
-  { id: 'c_ann', name: 'Объявления', kind: 'channel', category: 'announcements', about: 'Замены, дедлайны, важное', messages: [] },
-  { id: 'c_life', name: 'Жизнь класса', kind: 'channel', category: 'life', about: 'Фотки, истории, мемы', messages: [] },
-  { id: 'c_study', name: 'Учёба', kind: 'channel', category: 'study', about: 'Домашки, конспекты, шпоры', messages: [] },
-  { id: 'c_shop', name: 'Барахолка', kind: 'channel', category: 'shop', about: 'Продать, купить, отдать', messages: [] },
-  { id: 'g_main', name: 'Общий чат', kind: 'chat', category: 'general', about: 'Общение класса', messages: [] },
+  { id: 'c_ann', name: 'Announcements', kind: 'channel', category: 'announcements', about: 'Schedule changes, deadlines, important stuff', messages: [] },
+  { id: 'c_life', name: 'Class Life', kind: 'channel', category: 'life', about: 'Photos, stories, memes', messages: [] },
+  { id: 'c_study', name: 'Study', kind: 'channel', category: 'study', about: 'Homework, notes, cheat sheets', messages: [] },
+  { id: 'c_shop', name: 'Marketplace', kind: 'channel', category: 'shop', about: 'Sell, buy, give away', messages: [] },
+  { id: 'g_main', name: 'General Chat', kind: 'chat', category: 'general', about: 'Class communication', messages: [] },
 ];
 
 const AVATAR_COLORS = ['#f5a623', '#e94e6a', '#3fb950', '#9d7bd8', '#39c5cf', '#d29922', '#db61a2', '#7ee787'];
@@ -149,8 +149,8 @@ function formatDateLabel(ts: number): string {
   const today = new Date();
   const yest = new Date(today);
   yest.setDate(today.getDate() - 1);
-  if (d.toDateString() === today.toDateString()) return 'Сегодня';
-  if (d.toDateString() === yest.toDateString()) return 'Вчера';
+  if (d.toDateString() === today.toDateString()) return 'Today';
+  if (d.toDateString() === yest.toDateString()) return 'Yesterday';
   return d.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' });
 }
 
@@ -159,7 +159,7 @@ function uid(prefix = 'm'): string {
 }
 
 function categoryLabel(id?: string): string {
-  return CATEGORIES.find(c => c.id === id)?.label || 'Другое';
+  return CATEGORIES.find(c => c.id === id)?.label || 'Other';
 }
 
 function safeDataUrl(url: string | undefined, maxLen = 200_000): string | undefined {
@@ -232,7 +232,7 @@ export default function ClientApp() {
   const [pendingImage, setPendingImage] = useState<string | undefined>();
   const [modalMode, setModalMode] = useState<ModalMode>(null);
   const [searchQuery, setSearchQuery] = useState('');
-  // Sidebar tab: 'rooms' (каналы и чаты) | 'members' (список онлайн-участников)
+  // Sidebar tab: 'rooms' (channelы и чаты) | 'members' (список онлайн-участников)
   const [sidebarTab, setSidebarTab] = useState<'rooms' | 'members'>('rooms');
   const fileInputRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -354,7 +354,7 @@ export default function ClientApp() {
   };
 
   // ===========================================================================
-  // Действия
+  // Actions
   // ===========================================================================
 
   const activeRoom = useMemo(() => state.rooms.find(r => r.id === state.active) ?? state.rooms[0], [state.rooms, state.active]);
@@ -412,7 +412,7 @@ export default function ClientApp() {
       messages: [],
     };
     setState(prev => ({ ...prev, rooms: [...prev.rooms, newRoom] }));
-    toast.success(kind === 'channel' ? `Канал «${cleanName}» создан` : `Чат «${cleanName}» создан`);
+    toast.success(kind === 'channel' ? `Channel «${cleanName}» created` : `Chat «${cleanName}» created`);
   };
 
   const pinMessage = (text: string) => {
@@ -650,7 +650,7 @@ export default function ClientApp() {
                   )}
                   <span className="font-semibold truncate">{activeRoom.name}</span>
                   <Badge variant="outline" className="text-[10px] uppercase tracking-wide hidden sm:inline-flex">
-                    {activeRoom.kind === 'channel' ? 'Канал' : 'Чат'}
+                    {activeRoom.kind === 'channel' ? 'Channel' : 'Chat'}
                   </Badge>
                 </div>
                 {activeRoom.about && (
@@ -660,31 +660,31 @@ export default function ClientApp() {
             )}
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="ghost" size="icon" aria-label="Действия">
+                <Button variant="ghost" size="icon" aria-label="Actions">
                   <MoreVertical className="size-4" />
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-52 dropdown-in">
                 {pinned && (
                   <DropdownMenuItem onClick={unpin}>
-                    <X className="size-4 mr-2" /> Открепить
+                    <X className="size-4 mr-2" /> Unpin
                   </DropdownMenuItem>
                 )}
                 <DropdownMenuItem onClick={() => setModalMode('pin')}>
-                  <Pin className="size-4 mr-2" /> Закрепить
+                  <Pin className="size-4 mr-2" /> Pin
                 </DropdownMenuItem>
                 <DropdownMenuItem onClick={() => setModalMode('poll')}>
-                  <BarChart3 className="size-4 mr-2" /> Создать опрос
+                  <BarChart3 className="size-4 mr-2" /> Create poll
                 </DropdownMenuItem>
                 <DropdownMenuItem onClick={() => setModalMode('anon')}>
-                  <EyeOff className="size-4 mr-2" /> Анонимный вопрос
+                  <EyeOff className="size-4 mr-2" /> Anonymous question
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem onClick={() => setModalMode('info')}>
-                  <Info className="size-4 mr-2" /> Информация
+                  <Info className="size-4 mr-2" /> Info
                 </DropdownMenuItem>
                 <DropdownMenuItem onClick={() => setModalMode('profile')}>
-                  <UserIcon className="size-4 mr-2" /> Профиль
+                  <UserIcon className="size-4 mr-2" /> Profile
                 </DropdownMenuItem>
                 {activeRoom?.kind === 'channel' && isAdmin && (
                   <>
@@ -708,7 +708,7 @@ export default function ClientApp() {
                 <span className="text-muted-foreground text-xs uppercase tracking-wide mr-2">Закреп</span>
                 <span className="break-words">{pinned.text}</span>
               </div>
-              <Button variant="ghost" size="icon" className="size-6" onClick={unpin} aria-label="Открепить">
+              <Button variant="ghost" size="icon" className="size-6" onClick={unpin} aria-label="Unpin">
                 <X className="size-3" />
               </Button>
             </div>
@@ -720,8 +720,8 @@ export default function ClientApp() {
               {groupedItems.length === 0 && roomPolls.length === 0 && roomAnonQs.length === 0 && (
                 <div className="text-center text-muted-foreground py-20 fade-in">
                   <MessageSquare className="size-10 mx-auto mb-3 opacity-40" />
-                  <p className="text-sm font-medium">Здесь пока пусто</p>
-                  <p className="text-xs mt-1">Напишите первым или закрепите сообщение</p>
+                  <p className="text-sm font-medium">Nothing here yet</p>
+                  <p className="text-xs mt-1">Be the first to write or pin a message</p>
                 </div>
               )}
 
@@ -771,7 +771,7 @@ export default function ClientApp() {
                     size="icon"
                     className="absolute -top-2 -right-2 size-6"
                     onClick={() => setPendingImage(undefined)}
-                    aria-label="Убрать изображение"
+                    aria-label="Remove изображение"
                   >
                     <X className="size-3" />
                   </Button>
@@ -790,7 +790,7 @@ export default function ClientApp() {
                   size="icon"
                   className="shrink-0"
                   onClick={() => fileInputRef.current?.click()}
-                  aria-label="Прикрепить изображение"
+                  aria-label="Attach image"
                 >
                   <ImagePlus className="size-5" />
                 </Button>
@@ -801,12 +801,12 @@ export default function ClientApp() {
                       size="icon"
                       className={`shrink-0 ${state.anon ? 'text-primary border border-primary/40' : ''}`}
                       onClick={toggleAnon}
-                      aria-label="Анонимно"
+                      aria-label="Anonymous"
                     >
                       <EyeOff className="size-5" />
                     </Button>
                   </TooltipTrigger>
-                  <TooltipContent>{state.anon ? 'Анонимный режим включён' : 'Отправить анонимно'}</TooltipContent>
+                  <TooltipContent>{state.anon ? 'Anonymous mode on' : 'Send анонимно'}</TooltipContent>
                 </Tooltip>
                 <Textarea
                   value={inputValue}
@@ -817,7 +817,7 @@ export default function ClientApp() {
                       sendMessage();
                     }
                   }}
-                  placeholder="Написать сообщение…"
+                  placeholder="Type a message…"
                   rows={1}
                   className="resize-none min-h-[42px] max-h-32 flex-1"
                   maxLength={MAX_MSG_LEN}
@@ -827,7 +827,7 @@ export default function ClientApp() {
                   className="shrink-0"
                   onClick={sendMessage}
                   disabled={!inputValue.trim() && !pendingImage}
-                  aria-label="Отправить"
+                  aria-label="Send"
                 >
                   <Send className="size-5" />
                 </Button>
@@ -916,15 +916,15 @@ function Sidebar(props: {
             className="size-10 rounded-xl flex items-center justify-center font-extrabold text-lg shrink-0"
             style={{ background: 'linear-gradient(135deg, #f5a623, #e94e6a)', color: '#0a0e1a' }}
           >
-            К
+            H
           </div>
           <div className="min-w-0 flex-1">
             <div className="font-bold leading-tight truncate">Holler</div>
             <div className="text-xs text-muted-foreground truncate flex items-center gap-1">
               {isConnected ? (
-                <><Wifi className="size-3 text-green-500" /> онлайн: {onlineMembers.length}</>
+                <><Wifi className="size-3 text-green-500" /> online: {onlineMembers.length}</>
               ) : (
-                <><WifiOff className="size-3 text-destructive connection-pulse" /> нет связи</>
+                <><WifiOff className="size-3 text-destructive connection-pulse" /> offline</>
               )}
             </div>
           </div>
@@ -941,7 +941,7 @@ function Sidebar(props: {
                 ? 'text-foreground border-b-2 border-primary'
                 : 'text-muted-foreground hover:text-foreground'}`}
           >
-            <MessageSquare className="size-3.5" /> Комнаты
+            <MessageSquare className="size-3.5" /> Rooms
           </button>
           <button
             type="button"
@@ -951,7 +951,7 @@ function Sidebar(props: {
                 ? 'text-foreground border-b-2 border-primary'
                 : 'text-muted-foreground hover:text-foreground'}`}
           >
-            <Users className="size-3.5" /> Участники
+            <Users className="size-3.5" /> Members
             {onlineMembers.length > 0 && (
               <Badge variant="secondary" className="text-[10px] px-1 py-0 h-4 tabular-nums">
                 {onlineMembers.length}
@@ -970,7 +970,7 @@ function Sidebar(props: {
                 <Input
                   value={searchQuery}
                   onChange={(e) => onSearchChange(e.target.value)}
-                  placeholder="Поиск по комнатам"
+                  placeholder="Search rooms"
                   className="pl-9 h-9"
                 />
               </div>
@@ -981,17 +981,17 @@ function Sidebar(props: {
               {/* Channels section */}
               <div className="flex items-center justify-between px-2 py-2">
                 <span className="text-xs uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
-                  <Megaphone className="size-3" /> Каналы
+                  <Megaphone className="size-3" /> Channels
                 </span>
                 {isAdmin && (
-                  <Button variant="ghost" size="icon" className="size-6" onClick={onAddChannel} aria-label="Создать канал">
+                  <Button variant="ghost" size="icon" className="size-6" onClick={onAddChannel} aria-label="Create channel">
                     <Plus className="size-4" />
                   </Button>
                 )}
               </div>
               <div className="flex flex-col gap-0.5 mb-3">
                 {channels.length === 0 && (
-                  <div className="text-xs text-muted-foreground px-3 py-2">Нет каналов</div>
+                  <div className="text-xs text-muted-foreground px-3 py-2">Нет channelов</div>
                 )}
                 {channels.map(c => (
                   <RoomItem
@@ -1010,14 +1010,14 @@ function Sidebar(props: {
                   <MessageSquare className="size-3" /> Чаты
                 </span>
                 {isAdmin && (
-                  <Button variant="ghost" size="icon" className="size-6" onClick={onAddChannel} aria-label="Создать чат">
+                  <Button variant="ghost" size="icon" className="size-6" onClick={onAddChannel} aria-label="Create chat">
                     <Plus className="size-4" />
                   </Button>
                 )}
               </div>
               <div className="flex flex-col gap-0.5">
                 {chats.length === 0 && (
-                  <div className="text-xs text-muted-foreground px-3 py-2">Нет чатов</div>
+                  <div className="text-xs text-muted-foreground px-3 py-2">No chats</div>
                 )}
                 {chats.map(c => (
                   <RoomItem
@@ -1040,16 +1040,16 @@ function Sidebar(props: {
           <button
             onClick={onProfile}
             className="w-full flex items-center gap-3 p-2 rounded-lg hover:bg-muted/60 transition-colors text-left"
-            aria-label="Открыть профиль"
+            aria-label="Open profile"
           >
             <Avatar user={user} size={36} />
             <div className="min-w-0 flex-1">
               <div className="text-sm font-medium truncate">{user.name}</div>
               <div className="text-xs text-muted-foreground flex items-center gap-1">
                 {user.role === 'admin' ? (
-                  <><Badge variant="secondary" className="text-[10px] px-1 py-0 h-3.5">АДМИН</Badge> права администратора</>
+                  <><Badge variant="secondary" className="text-[10px] px-1 py-0 h-3.5">АДМИН</Badge> admin privileges</>
                 ) : (
-                  'Ученик'
+                  'Member'
                 )}
               </div>
             </div>
@@ -1061,7 +1061,7 @@ function Sidebar(props: {
             className="w-full mt-2 text-muted-foreground justify-start"
             onClick={onLogout}
           >
-            <LogOut className="size-4 mr-2" /> Выйти
+            <LogOut className="size-4 mr-2" /> Sign out
           </Button>
         </div>
       </aside>
@@ -1094,14 +1094,14 @@ function MembersList(props: { members: OnlineMember[]; currentUserId: string; is
       {!isConnected && (
         <div className="px-3 py-4 text-center text-xs text-muted-foreground">
           <WifiOff className="size-6 mx-auto mb-2 opacity-50" />
-          Подключение к серверу…
+          Connecting to server…
         </div>
       )}
 
       {isConnected && members.length === 0 && (
         <div className="px-3 py-4 text-center text-xs text-muted-foreground">
           <Users className="size-6 mx-auto mb-2 opacity-50" />
-          Пока никто не в сети
+          Nobody online yet
         </div>
       )}
 
@@ -1128,7 +1128,7 @@ function MembersList(props: { members: OnlineMember[]; currentUserId: string; is
                 {m.role === 'admin' && (
                   <Badge variant="secondary" className="text-[9px] px-1 py-0 h-3">АДМИН</Badge>
                 )}
-                <span>в сети с {formatTime(m.joinedAt)}</span>
+                <span>online since {formatTime(m.joinedAt)}</span>
               </div>
             </div>
           </div>
@@ -1228,7 +1228,7 @@ function MessageItem(props: { msg: Message; currentUserId: string; showHeader: b
         {showHeader && (
           <div className="flex items-center gap-2 text-xs text-muted-foreground mb-1 px-1">
             <span className={msg.anon ? 'text-purple-400 font-medium' : 'text-foreground font-medium'}>
-              {msg.anon ? 'Анонимно' : msg.authorName}
+              {msg.anon ? 'Anonymous' : msg.authorName}
             </span>
             {!msg.anon && msg.role === 'admin' && (
               <Badge variant="secondary" className="text-[10px] px-1 py-0 h-3.5">АДМИН</Badge>
@@ -1271,7 +1271,7 @@ function PollCard(props: { poll: Poll; currentUserId: string; onVote: (pollId: s
     <Card className="p-4 msg-in card-slide-in border-primary/20">
       <div className="flex items-center gap-2 mb-1">
         <BarChart3 className="size-4 text-primary" />
-        <span className="text-xs uppercase tracking-wide text-muted-foreground">Опрос</span>
+        <span className="text-xs uppercase tracking-wide text-muted-foreground">Poll</span>
       </div>
       <div className="font-semibold mb-3">{poll.q}</div>
       <div className="flex flex-col gap-2">
@@ -1320,7 +1320,7 @@ function PollCard(props: { poll: Poll; currentUserId: string; onVote: (pollId: s
         })}
       </div>
       <div className="text-xs text-muted-foreground mt-3 flex items-center justify-between">
-        <span>{totalVotes} {pluralize(totalVotes, 'голос', 'голоса', 'голосов')}</span>
+        <span>{totalVotes} {pluralize(totalVotes, 'vote', 'voteа', 'voteов')}</span>
         <span>{formatTime(poll.ts)}</span>
       </div>
     </Card>
@@ -1347,7 +1347,7 @@ function AnonCard(props: { q: AnonQuestion; onAnswer: (id: string, text: string)
     <Card className="p-4 msg-in card-slide-in border-purple-500/20 bg-purple-500/5">
       <div className="flex items-center gap-2 mb-1">
         <EyeOff className="size-4 text-purple-400" />
-        <span className="text-xs uppercase tracking-wide text-purple-400">Анонимный вопрос</span>
+        <span className="text-xs uppercase tracking-wide text-purple-400">Anonymous question</span>
       </div>
       <div className="font-medium mb-3">{q.q}</div>
       {showAnswer ? (
@@ -1371,16 +1371,16 @@ function AnonCard(props: { q: AnonQuestion; onAnswer: (id: string, text: string)
               }}
               disabled={!text.trim()}
             >
-              <Send className="size-3 mr-1" /> Ответить
+              <Send className="size-3 mr-1" /> Reply
             </Button>
             <Button size="sm" variant="ghost" onClick={() => setShowAnswer(false)}>
-              Отмена
+              Cancel
             </Button>
           </div>
         </div>
       ) : (
         <Button size="sm" variant="outline" onClick={() => setShowAnswer(true)}>
-          <EyeOff className="size-3 mr-1" /> Ответить анонимно
+          <EyeOff className="size-3 mr-1" /> Reply anonymously
         </Button>
       )}
     </Card>
@@ -1396,7 +1396,7 @@ function JoinScreen(props: { onJoin: (code: string, name: string) => Promise<boo
   const [code, setCode] = useState('');
   const [name, setName] = useState('');
   const [loading, setLoading] = useState(false);
-  // Текстовое сообщение под полем (без подсветки самого инпута)
+  // Textовое сообщение под полем (без подсветки самого инпута)
   const [codeMsg, setCodeMsg] = useState<string>('');
   const [nameMsg, setNameMsg] = useState<string>('');
 
@@ -1435,7 +1435,7 @@ function JoinScreen(props: { onJoin: (code: string, name: string) => Promise<boo
               className="size-12 rounded-xl flex items-center justify-center font-extrabold text-xl shrink-0"
               style={{ background: 'linear-gradient(135deg, #f5a623, #e94e6a)', color: '#0a0e1a' }}
             >
-              К
+              H
             </div>
             <div>
               <h1 className="text-xl font-bold leading-tight">Holler</h1>
@@ -1501,7 +1501,7 @@ function JoinScreen(props: { onJoin: (code: string, name: string) => Promise<boo
         </div>
 
         <div className="mt-5 p-3 rounded-lg bg-muted/40 border border-border text-xs text-muted-foreground leading-relaxed">
-          Access codes verified server-side и не видны в браузере. Rate-limited to 10 attempts per minute.
+          Access codes verified server-side and not visible in the browser. Rate-limited to 10 attempts per minute.
         </div>
       </Card>
     </div>
@@ -1583,18 +1583,18 @@ function AddRoomModal(props: { onClose: () => void; onCreate: (name: string, abo
 
   return (
     <ModalShell
-      title="Новая комната"
-      description="Канал — односторонняя лента (пишет автор, читают все). Чат — общение всех участников."
+      title="New room"
+      description="A channel is a one-way feed (author writes, everyone reads). A chat is for everyone to talk."
       onClose={props.onClose}
       footer={
         <Button onClick={() => { props.onCreate(name, about, category, kind); props.onClose(); }}>
-          Создать
+          Create
         </Button>
       }
     >
       <div className="space-y-3">
         <div>
-          <Label>Тип комнаты</Label>
+          <Label>Type комнаты</Label>
           <div className="grid grid-cols-2 gap-2 mt-1">
             <button
               type="button"
@@ -1604,7 +1604,7 @@ function AddRoomModal(props: { onClose: () => void; onCreate: (name: string, abo
             >
               <Megaphone className="size-4" />
               <div>
-                <div className="font-medium">Канал</div>
+                <div className="font-medium">Channel</div>
                 <div className="text-xs text-muted-foreground">лента</div>
               </div>
             </button>
@@ -1623,15 +1623,15 @@ function AddRoomModal(props: { onClose: () => void; onCreate: (name: string, abo
           </div>
         </div>
         <div>
-          <Label htmlFor="cn">Название</Label>
-          <Input id="cn" placeholder="например: Спорт" maxLength={32} value={name} onChange={(e) => setName(e.target.value)} />
+          <Label htmlFor="cn">Name</Label>
+          <Input id="cn" placeholder="например: Sport" maxLength={32} value={name} onChange={(e) => setName(e.target.value)} />
         </div>
         <div>
-          <Label htmlFor="cd">Описание</Label>
-          <Input id="cd" placeholder="о чём комната" maxLength={MAX_ABOUT_LEN} value={about} onChange={(e) => setAbout(e.target.value)} />
+          <Label htmlFor="cd">Description</Label>
+          <Input id="cd" placeholder="what is this room about" maxLength={MAX_ABOUT_LEN} value={about} onChange={(e) => setAbout(e.target.value)} />
         </div>
         <div>
-          <Label>Категория</Label>
+          <Label>Category</Label>
           <div className="flex flex-wrap gap-1.5 mt-1">
             {CATEGORIES.map(c => (
               <button
@@ -1655,18 +1655,18 @@ function PinModal(props: { onClose: () => void; onPin: (text: string) => void; r
   const [text, setText] = useState('');
   return (
     <ModalShell
-      title="Закрепить сообщение"
-      description={`Закреп появится вверху комнаты «${props.roomName}».`}
+      title="Pin сообщение"
+      description={`The pin will appear at the top of the room «${props.roomName}».`}
       onClose={props.onClose}
       footer={
         <Button onClick={() => { props.onPin(text); props.onClose(); }} disabled={!text.trim()}>
-          Закрепить
+          Pin
         </Button>
       }
     >
       <div>
-        <Label htmlFor="pt">Текст</Label>
-        <Textarea id="pt" rows={3} maxLength={500} value={text} onChange={(e) => setText(e.target.value)} placeholder="Что закрепить?" />
+        <Label htmlFor="pt">Text</Label>
+        <Textarea id="pt" rows={3} maxLength={500} value={text} onChange={(e) => setText(e.target.value)} placeholder="What to pin?" />
       </div>
     </ModalShell>
   );
@@ -1700,21 +1700,21 @@ function PollModal(props: { onClose: () => void; onCreate: (q: string, opts: str
 
   return (
     <ModalShell
-      title="Новый опрос"
-      description="Вопрос и варианты ответа. Участники увидят опрос в чате."
+      title="New poll"
+      description="Question и варианты ответа. Members увидят опрос в чате."
       onClose={props.onClose}
       footer={
         <Button onClick={handlePublish} disabled={!canPublish}>
-          Опубликовать
+          Publish
         </Button>
       }
     >
       <div className="space-y-4">
         <div>
-          <Label htmlFor="pq">Вопрос</Label>
+          <Label htmlFor="pq">Question</Label>
           <Input
             id="pq"
-            placeholder="Когда сдаём проект?"
+            placeholder="When is the project due?"
             maxLength={200}
             value={q}
             onChange={(e) => setQ(e.target.value)}
@@ -1723,7 +1723,7 @@ function PollModal(props: { onClose: () => void; onCreate: (q: string, opts: str
         </div>
         <div>
           <div className="flex items-center justify-between mb-2">
-            <Label>Варианты ответа</Label>
+            <Label>Answer options</Label>
             <span className="text-xs text-muted-foreground tabular-nums">
               {opts.length}/{MAX_OPTS}
             </span>
@@ -1737,7 +1737,7 @@ function PollModal(props: { onClose: () => void; onCreate: (q: string, opts: str
                 <Input
                   value={opt}
                   onChange={(e) => updateOpt(i, e.target.value)}
-                  placeholder={`Вариант ${i + 1}`}
+                  placeholder={`Option ${i + 1}`}
                   maxLength={100}
                   onKeyDown={(e) => {
                     if (e.key === 'Enter') {
@@ -1766,9 +1766,9 @@ function PollModal(props: { onClose: () => void; onCreate: (q: string, opts: str
               onClick={addOpt}
               disabled={opts.length >= MAX_OPTS}
             >
-              <Plus className="size-4 mr-1" /> Добавить вариант
+              <Plus className="size-4 mr-1" /> Add option
             </Button>
-            <p className="text-xs text-muted-foreground">Минимум 2, максимум {MAX_OPTS}.</p>
+            <p className="text-xs text-muted-foreground">Min 2, max {MAX_OPTS}.</p>
           </div>
         </div>
       </div>
@@ -1780,18 +1780,18 @@ function AnonModal(props: { onClose: () => void; onAsk: (q: string) => void }) {
   const [q, setQ] = useState('');
   return (
     <ModalShell
-      title="Анонимный вопрос"
+      title="Anonymous question"
       description="Community answers, anonymous stays."
       onClose={props.onClose}
       footer={
         <Button onClick={() => { props.onAsk(q); props.onClose(); }} disabled={!q.trim()}>
-          Задать анонимно
+          Ask anonymously
         </Button>
       }
     >
       <div>
-        <Label htmlFor="aq">Вопрос</Label>
-        <Textarea id="aq" rows={3} maxLength={300} value={q} onChange={(e) => setQ(e.target.value)} placeholder="Что спросить у класса?" />
+        <Label htmlFor="aq">Question</Label>
+        <Textarea id="aq" rows={3} maxLength={300} value={q} onChange={(e) => setQ(e.target.value)} placeholder="What to ask the community?" />
       </div>
     </ModalShell>
   );
@@ -1843,13 +1843,13 @@ function ProfileModal(props: {
 
   return (
     <ModalShell
-      title="Профиль"
+      title="Profile"
       description="Так вас видят в классе."
       onClose={props.onClose}
       footer={
         <>
-          <Button variant="ghost" onClick={props.onClose}>Отмена</Button>
-          <Button onClick={() => { props.onSave(name, role, avatar); props.onClose(); }}>Сохранить</Button>
+          <Button variant="ghost" onClick={props.onClose}>Cancel</Button>
+          <Button onClick={() => { props.onSave(name, role, avatar); props.onClose(); }}>Save</Button>
         </>
       }
     >
@@ -1859,14 +1859,14 @@ function ProfileModal(props: {
           <div className="flex-1">
             <input ref={fileRef} type="file" accept="image/jpeg,image/png,image/webp" onChange={onFile} className="hidden" />
             <Button variant="outline" size="sm" onClick={() => fileRef.current?.click()}>
-              <ImagePlus className="size-4 mr-1" /> Загрузить
+              <ImagePlus className="size-4 mr-1" /> Upload
             </Button>
             {avatar && (
               <Button variant="ghost" size="sm" className="ml-2" onClick={() => setAvatar(undefined)}>
-                Убрать
+                Remove
               </Button>
             )}
-            <p className="text-xs text-muted-foreground mt-1">JPG/PNG/WebP, до 2 МБ, обрежется в круг.</p>
+            <p className="text-xs text-muted-foreground mt-1">JPG/PNG/WebP, до 2 МБ, will be cropped to circle.</p>
           </div>
         </div>
         <div>
@@ -1879,10 +1879,10 @@ function ProfileModal(props: {
             checked={role === 'admin'}
             onCheckedChange={(v) => setRole(v ? 'admin' : 'member')}
           />
-          <Label htmlFor="pr" className="cursor-pointer">Я админ класса</Label>
+          <Label htmlFor="pr" className="cursor-pointer">I am an admin</Label>
         </div>
         <p className="text-xs text-muted-foreground">
-          Реальные права админа выдаёт только сервер при вводе админского кода. Эта галочка — лишь для локального предпросмотра.
+          Real admin rights are granted only by the server when entering the admin code. This checkbox is for local preview only.
         </p>
       </div>
     </ModalShell>
@@ -1904,7 +1904,7 @@ function InfoModal(props: {
       onClose={props.onClose}
       footer={
         <>
-          <Button variant="ghost" onClick={props.onClose}>Закрыть</Button>
+          <Button variant="ghost" onClick={props.onClose}>Close</Button>
           {room.kind === 'channel' && isAdmin && onDelete && (
             <Button variant="destructive" onClick={onDelete}>
               <Trash2 className="size-4 mr-1" /> Delete channel
@@ -1915,28 +1915,28 @@ function InfoModal(props: {
     >
       <div className="space-y-3 text-sm">
         <div className="flex items-center justify-between">
-          <span className="text-muted-foreground">Тип</span>
-          <Badge variant="outline">{room.kind === 'channel' ? 'Канал' : 'Чат'}</Badge>
+          <span className="text-muted-foreground">Type</span>
+          <Badge variant="outline">{room.kind === 'channel' ? 'Channel' : 'Chat'}</Badge>
         </div>
         <div className="flex items-center justify-between">
-          <span className="text-muted-foreground">Категория</span>
+          <span className="text-muted-foreground">Category</span>
           <span className="font-medium">{categoryLabel(room.category)}</span>
         </div>
         <div className="flex items-center justify-between">
-          <span className="text-muted-foreground">Участников класса</span>
+          <span className="text-muted-foreground">Class members</span>
           <span className="font-medium tabular-nums">{members}</span>
         </div>
         <div className="flex items-center justify-between">
-          <span className="text-muted-foreground">Сообщений</span>
+          <span className="text-muted-foreground">Messages</span>
           <span className="font-medium tabular-nums">{room.messages.length}</span>
         </div>
         {room.kind === 'channel' ? (
           <p className="text-xs text-muted-foreground border-t border-border pt-3 mt-2">
-            В канале можно читать. Удалять может только админ.
+            В channelе можно читать. Удалять может только админ.
           </p>
         ) : (
           <p className="text-xs text-muted-foreground border-t border-border pt-3 mt-2">
-            В чате пишут все. Поддерживаются опросы и анонимные вопросы.
+            Everyone can write in chats. Polls and anonymous questions are supported.
           </p>
         )}
       </div>
