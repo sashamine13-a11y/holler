@@ -16,10 +16,10 @@ const manrope = Manrope({
 });
 
 export const metadata: Metadata = {
-  title: "КлассChat — соцсеть твоего класса",
-  description: "Закрытая соцсеть для общения с одноклассниками: каналы, чаты, опросы и анонимные вопросы.",
-  keywords: ["класс", "соцсеть", "чаты", "опросы", "школа"],
-  authors: [{ name: "КлассChat" }],
+  title: "Holler — messenger that keeps up with you",
+  description: "Real-time messenger with channels, polls, anonymous questions and secure access codes.",
+  keywords: ["messenger", "chat", "real-time", "channels", "polls"],
+  authors: [{ name: "Holler" }],
   robots: { index: false, follow: false },
   icons: {
     icon: "/favicon.svg",
@@ -39,7 +39,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="ru" suppressHydrationWarning>
+    <html lang="en" suppressHydrationWarning>
       <head>
         <script
           dangerouslySetInnerHTML={{

@@ -96,7 +96,7 @@ interface AppState {
 // Константы
 // ============================================================================
 
-const STORAGE_KEY = 'klasschat_v2';
+const STORAGE_KEY = 'holler_v1';
 const AVATAR_MAX_BYTES = 2 * 1024 * 1024;
 const AVATAR_DIM = 160;
 const MAX_MSG_LEN = 2000;
@@ -216,7 +216,7 @@ function saveState(s: AppState): void {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(s));
   } catch {
-    toast.error('Не удалось сохранить — возможно, переполнен localStorage');
+    toast.error('Failed to save — возможно, переполнен localStorage');
   }
 }
 
@@ -302,7 +302,7 @@ export default function ClientApp() {
 
     const onRoomUpdate = () => {
       // Уведомляем пользователя что список комнат мог измениться
-      toast('Список комнат обновлён');
+      toast('Room list updated');
     };
 
     socket.on('message:new', onMessageNew);
@@ -333,16 +333,16 @@ export default function ClientApp() {
       });
       const data = await res.json();
       if (!res.ok || !data.ok) {
-        toast.error(data.error || 'Ошибка входа');
+        toast.error(data.error || 'Login error');
         return false;
       }
       const user: User = { id: uid('u'), name: data.user.name, role: data.user.role };
       setState(prev => ({ ...prev, user }));
       setShowJoin(false);
-      toast.success(`Добро пожаловать, ${user.name}!`);
+      toast.success(`Welcome, ${user.name}!`);
       return true;
     } catch {
-      toast.error('Сеть недоступна');
+      toast.error('Network unavailable');
       return false;
     }
   };
@@ -350,7 +350,7 @@ export default function ClientApp() {
   const handleLogout = () => {
     setState(prev => ({ ...prev, user: null }));
     setShowJoin(true);
-    toast('Вы вышли из аккаунта');
+    toast('Signed out');
   };
 
   // ===========================================================================
@@ -394,7 +394,7 @@ export default function ClientApp() {
       rooms: prev.rooms.filter(r => r.id !== id),
       active: prev.active === id ? 'g_main' : prev.active,
     }));
-    toast('Комната удалена');
+    toast('Room deleted');
   };
 
   const createRoom = (name: string, about: string, category: string, kind: RoomKind) => {
@@ -419,19 +419,19 @@ export default function ClientApp() {
     if (!activeRoom) return;
     const clean = sanitizeText(text, 500);
     if (!clean) {
-      toast.error('Введите текст');
+      toast.error('Enter text');
       return;
     }
     const pinned: Pinned = { room: activeRoom.id, text: clean, ts: Date.now() };
     setState(prev => ({ ...prev, pinned }));
     socket?.emit('pin:update', { pinned });
-    toast('Сообщение закреплено');
+    toast('Message pinned');
   };
 
   const unpin = () => {
     setState(prev => ({ ...prev, pinned: null }));
     socket?.emit('pin:update', { pinned: null });
-    toast('Закреп удалён');
+    toast('Pin removed');
   };
 
   const createPoll = (q: string, optionsArr: string[]) => {
@@ -455,7 +455,7 @@ export default function ClientApp() {
     };
     setState(prev => ({ ...prev, polls: [...prev.polls, poll] }));
     socket?.emit('poll:new', { poll });
-    toast.success('Опрос опубликован');
+    toast.success('Poll published');
   };
 
   const votePoll = (pollId: string, optIdx: number) => {
@@ -480,7 +480,7 @@ export default function ClientApp() {
     if (!activeRoom || !state.user) return;
     const cleanQ = sanitizeText(q, 300);
     if (!cleanQ) {
-      toast.error('Введите вопрос');
+      toast.error('Enter a question');
       return;
     }
     const aq: AnonQuestion = {
@@ -492,7 +492,7 @@ export default function ClientApp() {
       authorId: state.user.id,
     };
     setState(prev => ({ ...prev, anonQs: [...prev.anonQs, aq] }));
-    toast.success('Анонимный вопрос отправлен');
+    toast.success('Anonymous question sent');
   };
 
   const answerAnon = (aqId: string, text: string) => {
@@ -507,14 +507,14 @@ export default function ClientApp() {
           : q,
       ),
     }));
-    toast.success('Ответ отправлен анонимно');
+    toast.success('Answer sent anonymously');
   };
 
   const updateProfile = (name: string, role: Role, avatar?: string) => {
     if (!state.user) return;
     const cleanName = sanitizeText(name, MAX_NAME_LEN);
     if (!cleanName) {
-      toast.error('Имя не может быть пустым');
+      toast.error('Name cannot be empty');
       return;
     }
     setState(prev => ({
@@ -523,18 +523,18 @@ export default function ClientApp() {
         ? { ...prev.user, name: cleanName, role, avatar: safeDataUrl(avatar, 100_000) }
         : prev.user,
     }));
-    toast.success('Профиль обновлён');
+    toast.success('Profile updated');
   };
 
   const handleAttach = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
     if (!/^image\/(jpeg|png|webp)$/.test(file.type)) {
-      toast.error('Только JPG, PNG или WebP');
+      toast.error('Only JPG, PNG, or WebP allowed');
       return;
     }
     if (file.size > AVATAR_MAX_BYTES) {
-      toast.error('Файл больше 2 МБ');
+      toast.error('File larger than 2MB');
       return;
     }
     const reader = new FileReader();
@@ -558,16 +558,16 @@ export default function ClientApp() {
         ctx.drawImage(img, 0, 0, width, height);
         const dataUrl = canvas.toDataURL('image/jpeg', 0.78);
         if (dataUrl.length > 200_000) {
-          toast.error('Изображение слишком большое даже после сжатия');
+          toast.error('Image too large even after compression');
           return;
         }
         setPendingImage(dataUrl);
-        toast('Изображение прикреплено');
+        toast('Image attached');
       };
-      img.onerror = () => toast.error('Не удалось прочитать изображение');
+      img.onerror = () => toast.error('Failed to read изображение');
       img.src = reader.result as string;
     };
-    reader.onerror = () => toast.error('Не удалось прочитать файл');
+    reader.onerror = () => toast.error('Failed to read файл');
     reader.readAsDataURL(file);
     e.target.value = '';
   };
@@ -690,9 +690,9 @@ export default function ClientApp() {
                   <>
                     <DropdownMenuSeparator />
                     <DropdownMenuItem className="text-destructive" onClick={() => {
-                      if (confirm(`Удалить канал «${activeRoom.name}»?`)) deleteRoom(activeRoom.id);
+                      if (confirm(`Delete channel «${activeRoom.name}»?`)) deleteRoom(activeRoom.id);
                     }}>
-                      <Trash2 className="size-4 mr-2" /> Удалить канал
+                      <Trash2 className="size-4 mr-2" /> Delete channel
                     </DropdownMenuItem>
                   </>
                 )}
@@ -919,7 +919,7 @@ function Sidebar(props: {
             К
           </div>
           <div className="min-w-0 flex-1">
-            <div className="font-bold leading-tight truncate">КлассChat</div>
+            <div className="font-bold leading-tight truncate">Holler</div>
             <div className="text-xs text-muted-foreground truncate flex items-center gap-1">
               {isConnected ? (
                 <><Wifi className="size-3 text-green-500" /> онлайн: {onlineMembers.length}</>
@@ -1406,11 +1406,11 @@ function JoinScreen(props: { onJoin: (code: string, name: string) => Promise<boo
     setNameMsg('');
 
     if (!code) {
-      setCodeMsg('Введите код класса');
+      setCodeMsg('Enter access code');
       return;
     }
     if (!name.trim()) {
-      setNameMsg('Введите имя');
+      setNameMsg('Enter your name');
       return;
     }
 
@@ -1420,7 +1420,7 @@ function JoinScreen(props: { onJoin: (code: string, name: string) => Promise<boo
     const ok = await onJoin(code, name);
     if (!ok) {
       setLoading(false);
-      setCodeMsg('Неверный код класса');
+      setCodeMsg('Invalid access code');
     }
     // При успехе не сбрасываем loading и не меняем state —
     // родитель размонтирует этот экран.
@@ -1438,8 +1438,8 @@ function JoinScreen(props: { onJoin: (code: string, name: string) => Promise<boo
               К
             </div>
             <div>
-              <h1 className="text-xl font-bold leading-tight">КлассChat</h1>
-              <p className="text-xs text-muted-foreground">Закрытая соцсеть вашего класса</p>
+              <h1 className="text-xl font-bold leading-tight">Holler</h1>
+              <p className="text-xs text-muted-foreground">Real-time messenger</p>
             </div>
           </div>
           <ThemeToggle />
@@ -1475,7 +1475,7 @@ function JoinScreen(props: { onJoin: (code: string, name: string) => Promise<boo
             <Label htmlFor="jn">Ваше имя</Label>
             <Input
               id="jn"
-              placeholder="Как вас видеть одноклассникам"
+              placeholder="How others will see you"
               maxLength={MAX_NAME_LEN}
               value={name}
               onChange={(e) => {
@@ -1501,7 +1501,7 @@ function JoinScreen(props: { onJoin: (code: string, name: string) => Promise<boo
         </div>
 
         <div className="mt-5 p-3 rounded-lg bg-muted/40 border border-border text-xs text-muted-foreground leading-relaxed">
-          Коды проверки находятся на сервере и не видны в браузере. Авторизация идёт через API с защитой от перебора — 10 попыток в минуту.
+          Access codes verified server-side и не видны в браузере. Rate-limited to 10 attempts per minute.
         </div>
       </Card>
     </div>
@@ -1781,7 +1781,7 @@ function AnonModal(props: { onClose: () => void; onAsk: (q: string) => void }) {
   return (
     <ModalShell
       title="Анонимный вопрос"
-      description="Класс ответит, не зная автора."
+      description="Community answers, anonymous stays."
       onClose={props.onClose}
       footer={
         <Button onClick={() => { props.onAsk(q); props.onClose(); }} disabled={!q.trim()}>
@@ -1811,11 +1811,11 @@ function ProfileModal(props: {
     const f = e.target.files?.[0];
     if (!f) return;
     if (!/^image\/(jpeg|png|webp)$/.test(f.type)) {
-      toast.error('Только JPG, PNG или WebP');
+      toast.error('Only JPG, PNG, or WebP allowed');
       return;
     }
     if (f.size > AVATAR_MAX_BYTES) {
-      toast.error('Файл больше 2 МБ');
+      toast.error('File larger than 2MB');
       return;
     }
     const r = new FileReader();
@@ -1830,7 +1830,7 @@ function ProfileModal(props: {
         ctx.drawImage(img, (img.width - s) / 2, (img.height - s) / 2, s, s, 0, 0, AVATAR_DIM, AVATAR_DIM);
         const url = c.toDataURL('image/jpeg', 0.85);
         if (url.length > 100_000) {
-          toast.error('Слишком большое изображение');
+          toast.error('Image too large');
           return;
         }
         setAvatar(url);
@@ -1907,7 +1907,7 @@ function InfoModal(props: {
           <Button variant="ghost" onClick={props.onClose}>Закрыть</Button>
           {room.kind === 'channel' && isAdmin && onDelete && (
             <Button variant="destructive" onClick={onDelete}>
-              <Trash2 className="size-4 mr-1" /> Удалить канал
+              <Trash2 className="size-4 mr-1" /> Delete channel
             </Button>
           )}
         </>
