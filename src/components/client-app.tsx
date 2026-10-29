@@ -277,12 +277,20 @@ export default function ClientApp() {
   // ===========================================================================
   // WebSocket: подписка на входящие события
   // ===========================================================================
+  // Ref для отслеживания уже обработанных сообщений (анти-дублирование)
+  const processedMsgIds = useRef<Set<string>>(new Set());
+
   useEffect(() => {
     if (!socket) return;
 
     const onMessageNew = (payload: { roomId: string; message: Message }) => {
       if (!payload?.message) return;
       const msg = payload.message;
+      // Анти-дублирование: пропускаем если уже обработали это сообщение
+      if (processedMsgIds.current.has(msg.id)) return;
+      processedMsgIds.current.add(msg.id);
+      // Не дублируем своё же сообщение (уже добавлено локально в sendMessage)
+      if (msg.authorId === state.user?.id) return;
       setState(prev => ({
         ...prev,
         rooms: prev.rooms.map(r =>
