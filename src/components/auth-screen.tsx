@@ -6,9 +6,9 @@ import { Input } from '@/components/ui/input';
 import { Card } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
 import { toast } from 'sonner';
-import { AlertCircle, Mail, Lock, User as UserIcon, Chrome, ArrowRight, ArrowLeft } from 'lucide-react';
+import { AlertCircle, Mail, Lock, User as UserIcon, ArrowRight } from 'lucide-react';
 import { useAuth } from '@/hooks/use-auth';
-import { ThemeToggle } from './theme-toggle';
+import { ThemeToggle } from '@/components/theme-toggle';
 
 interface AuthScreenProps {
   onSuccess: (user: { id: string; name: string; email: string; role: 'member' | 'admin'; avatar?: string }) => void;
@@ -17,40 +17,13 @@ interface AuthScreenProps {
 type Mode = 'signin' | 'signup';
 
 export function AuthScreen({ onSuccess }: AuthScreenProps) {
-  const { signIn, signUp, signInWithGoogle, isConfigured } = useAuth();
+  const { signIn, signUp } = useAuth();
   const [mode, setMode] = useState<Mode>('signin');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [name, setName] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-
-  if (!isConfigured) {
-    return (
-      <div className="min-h-[100dvh] flex items-center justify-center p-4">
-        <Card className="w-full max-w-md p-6 glass">
-          <div className="flex items-center justify-between mb-5">
-            <div className="flex items-center gap-3">
-              <div
-                className="size-12 rounded-xl flex items-center justify-center font-extrabold text-xl shrink-0"
-                style={{ background: 'linear-gradient(135deg, #f5a623, #e94e6a)', color: '#0a0e1a' }}
-              >
-                H
-              </div>
-              <div>
-                <h1 className="text-xl font-bold leading-tight">Holler</h1>
-                <p className="text-xs text-muted-foreground">Real-time messenger</p>
-              </div>
-            </div>
-            <ThemeToggle />
-          </div>
-          <div className="p-4 rounded-lg bg-destructive/10 border border-destructive/30 text-sm text-destructive">
-            Authentication is not configured. Set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY environment variables.
-          </div>
-        </Card>
-      </div>
-    );
-  }
 
   const submit = async () => {
     setError('');
@@ -81,26 +54,7 @@ export function AuthScreen({ onSuccess }: AuthScreenProps) {
       return;
     }
 
-    // Если регистрация требует подтверждения email
-    if (mode === 'signup' && result.error === 'Check your email to confirm registration') {
-      toast.success('Check your email to confirm registration');
-      setMode('signin');
-      return;
-    }
-
-    // Успешный вход — Supabase сам обновит сессию, useAuth триггерит onSuccess
     toast.success(mode === 'signin' ? 'Welcome back!' : 'Account created!');
-  };
-
-  const handleGoogle = async () => {
-    setError('');
-    setLoading(true);
-    const result = await signInWithGoogle();
-    setLoading(false);
-    if (result.error) {
-      setError(result.error);
-    }
-    // Google OAuth перенаправит на Google, потом вернёт обратно
   };
 
   return (
@@ -141,24 +95,6 @@ export function AuthScreen({ onSuccess }: AuthScreenProps) {
           >
             Sign up
           </button>
-        </div>
-
-        {/* Google OAuth */}
-        <Button
-          variant="outline"
-          className="w-full mb-4"
-          onClick={handleGoogle}
-          disabled={loading}
-        >
-          <Chrome className="size-4 mr-2" />
-          Continue with Google
-        </Button>
-
-        {/* Divider */}
-        <div className="flex items-center gap-3 mb-4">
-          <div className="flex-1 h-px bg-border" />
-          <span className="text-xs text-muted-foreground uppercase tracking-wide">or</span>
-          <div className="flex-1 h-px bg-border" />
         </div>
 
         {/* Form */}
@@ -241,6 +177,11 @@ export function AuthScreen({ onSuccess }: AuthScreenProps) {
             {mode === 'signin' ? 'Sign up' : 'Sign in'}
           </button>
         </p>
+
+        {/* Info note */}
+        <div className="mt-4 p-3 rounded-lg bg-muted/30 border border-border text-xs text-muted-foreground leading-relaxed">
+          Accounts are stored locally in this browser. To use on another device, sign up there too — messages still sync in real-time across all your devices.
+        </div>
       </Card>
     </div>
   );
