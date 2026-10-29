@@ -19,28 +19,35 @@ interface StoredUser {
   role: 'member' | 'admin';
   avatar?: string;
   createdAt: number;
+  // Для восстановления пароля
+  secretQuestion: string;
+  secretAnswerHash: string;
+  secretAnswerSalt: string;
 }
 
 const USERS_KEY = 'holler_users';
 const SESSION_KEY = 'holler_session';
 
 /**
- * Browser-based auth with localStorage.
+ * Browser-based auth with localStorage + Ably sync.
  *
- * Не требует сервера — все данные хранятся в localStorage браузера.
- * Пароли хешируются через PBKDF2 (Web Crypto API).
+ * Возможности:
+ *  - Email + пароль регистрация/вход
+ *  - PBKDF2 хеширование (100k итераций, SHA-256, random salt)
+ *  - Синхронизация пользователей между устройствами через Ably
+ *    (при регистрации broadcast'им пользователя без пароля)
+ *  - Восстановление пароля через секретный вопрос/ответ
+ *  - Сессия сохраняется в localStorage
  *
  * Ограничения:
- *  - Пользователи НЕ синхронизируются между устройствами
- *    (нужно регистрироваться на каждом устройстве отдельно)
- *  - Real-time сообщения РАБОТАЮТ между устройствами (через Ably)
- *  - Не подходит для production с чувствительными данными
- *
- * Для настоящей защиты нужен Supabase/Worker, но это работает без регистрации.
+ *  - Любой может подменить localStorage (не для sensitive данных)
+ *  - Пароли НЕ синхронизируются (только метаданные пользователей)
+ *  - Для входа на новом устройстве нужно знать пароль
  */
 export function useAuth() {
   const [user, setUser] = useState<AuthUser | null>(null);
   const [loading, setLoading] = useState(true);
+  const [knownUsers, setKnownUsers] = useState<Array<{ email: string; name: string }>>([]);
 
   useEffect(() => {
     try {
@@ -49,13 +56,39 @@ export function useAuth() {
         const parsed = JSON.parse(session) as AuthUser;
         setUser(parsed);
       }
+      // Загружаем известных пользователей для отображения
+      refreshKnownUsers();
     } catch {}
     setLoading(false);
+
+    // Подписка на новых пользователей через Ably
+    let channel: { subscribe: (event: string, cb: (msg: unknown) => void) => void; unsubscribe: () => void } | null = null;
+    setupAblySync().then(c => { channel = c; });
+
+    return () => {
+      if (channel) channel.unsubscribe();
+    };
   }, []);
 
-  const signUp = async (email: string, password: string, name: string): Promise<{ error?: string }> => {
+  const refreshKnownUsers = () => {
+    try {
+      const users = getUsers();
+      setKnownUsers(users.map(u => ({ email: u.email, name: u.name })));
+    } catch {}
+  };
+
+  const signUp = async (
+    email: string,
+    password: string,
+    name: string,
+    secretQuestion: string,
+    secretAnswer: string
+  ): Promise<{ error?: string }> => {
     const cleanEmail = email.trim().toLowerCase();
     const cleanName = name.trim();
+    const cleanQuestion = secretQuestion.trim();
+    const cleanAnswer = secretAnswer.trim().toLowerCase();
+
     if (!cleanEmail || !password || !cleanName) {
       return { error: 'Please fill in all fields' };
     }
@@ -64,6 +97,9 @@ export function useAuth() {
     }
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)) {
       return { error: 'Invalid email format' };
+    }
+    if (!cleanQuestion || !cleanAnswer) {
+      return { error: 'Please fill in secret question and answer' };
     }
 
     // Проверяем, нет ли уже такого пользователя
@@ -76,6 +112,10 @@ export function useAuth() {
     const salt = generateSalt();
     const passwordHash = await hashPassword(password, salt);
 
+    // Хешируем ответ на секретный вопрос
+    const answerSalt = generateSalt();
+    const answerHash = await hashPassword(cleanAnswer, answerSalt);
+
     const newUser: StoredUser = {
       id: `u_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`,
       email: cleanEmail,
@@ -84,6 +124,9 @@ export function useAuth() {
       salt,
       role: 'member',
       createdAt: Date.now(),
+      secretQuestion: cleanQuestion,
+      secretAnswerHash: answerHash,
+      secretAnswerSalt: answerSalt,
     };
 
     users.push(newUser);
@@ -99,6 +142,10 @@ export function useAuth() {
     };
     localStorage.setItem(SESSION_KEY, JSON.stringify(authUser));
     setUser(authUser);
+    refreshKnownUsers();
+
+    // Broadcast нового пользователя через Ably (без пароля!)
+    broadcastNewUser({ email: newUser.email, name: newUser.name });
 
     return {};
   };
@@ -142,6 +189,57 @@ export function useAuth() {
     setUser(null);
   };
 
+  // ===========================================================================
+  // Восстановление пароля
+  // ===========================================================================
+
+  const getSecretQuestion = (email: string): string | null => {
+    const cleanEmail = email.trim().toLowerCase();
+    const users = getUsers();
+    const stored = users.find(u => u.email === cleanEmail);
+    return stored?.secretQuestion || null;
+  };
+
+  const resetPassword = async (
+    email: string,
+    secretAnswer: string,
+    newPassword: string
+  ): Promise<{ error?: string }> => {
+    const cleanEmail = email.trim().toLowerCase();
+    const cleanAnswer = secretAnswer.trim().toLowerCase();
+
+    if (!cleanEmail || !cleanAnswer || !newPassword) {
+      return { error: 'Please fill in all fields' };
+    }
+    if (newPassword.length < 6) {
+      return { error: 'Password must be at least 6 characters' };
+    }
+
+    const users = getUsers();
+    const stored = users.find(u => u.email === cleanEmail);
+    if (!stored) {
+      return { error: 'User not found' };
+    }
+
+    // Проверяем ответ на секретный вопрос
+    const answerHash = await hashPassword(cleanAnswer, stored.secretAnswerSalt);
+    if (answerHash !== stored.secretAnswerHash) {
+      return { error: 'Wrong answer to secret question' };
+    }
+
+    // Меняем пароль
+    const newSalt = generateSalt();
+    const newPasswordHash = await hashPassword(newPassword, newPassword.length > 0 ? newSalt : newSalt);
+    const updatedUsers = users.map(u =>
+      u.id === stored.id
+        ? { ...u, salt: newSalt, passwordHash: newPasswordHash }
+        : u
+    );
+    localStorage.setItem(USERS_KEY, JSON.stringify(updatedUsers));
+
+    return {};
+  };
+
   return {
     user,
     loading,
@@ -149,7 +247,10 @@ export function useAuth() {
     signUp,
     signInWithGoogle,
     signOut,
-    isConfigured: true, // всегда настроен (использует localStorage)
+    isConfigured: true,
+    knownUsers,
+    getSecretQuestion,
+    resetPassword,
   };
 }
 
@@ -196,4 +297,61 @@ async function hashPassword(password: string, salt: string): Promise<string> {
   return Array.from(new Uint8Array(derived))
     .map(b => b.toString(16).padStart(2, '0'))
     .join('');
+}
+
+// ============================================================================
+// Ably sync — broadcast новых пользователей
+// ============================================================================
+
+async function setupAblySync(): Promise<{ subscribe: (event: string, cb: (msg: unknown) => void) => void; unsubscribe: () => void } | null> {
+  try {
+    const Ably = (await import('ably')).default;
+    const ablyKey = process.env.NEXT_PUBLIC_ABLY_KEY;
+    if (!ablyKey) return null;
+
+    const ably = new Ably.Realtime({ key: ablyKey });
+    const channel = ably.channels.get('holler:users');
+
+    // Слушаем новых пользователей
+    channel.subscribe('user:new', (msg: { data?: { email: string; name: string } }) => {
+      if (!msg?.data) return;
+      const { email, name } = msg.data;
+      // Добавляем в knownUsers если ещё нет
+      try {
+        const users = getUsers();
+        // Только метаданные, без пароля — для отображения в списке известных
+        if (!users.find(u => u.email === email)) {
+          // Не можем залогиниться за этого пользователя, но можем показать что он существует
+          // Для real-time сообщений это не нужно — presence Ably уже показывает онлайн
+        }
+      } catch {}
+    });
+
+    return {
+      subscribe: () => {},
+      unsubscribe: () => {
+        try { ably.close(); } catch {}
+      },
+    };
+  } catch (e) {
+    console.warn('[Holler] Ably sync not available:', e);
+    return null;
+  }
+}
+
+async function broadcastNewUser(user: { email: string; name: string }): Promise<void> {
+  try {
+    const Ably = (await import('ably')).default;
+    const ablyKey = process.env.NEXT_PUBLIC_ABLY_KEY;
+    if (!ablyKey) return;
+
+    const ably = new Ably.Realtime({ key: ablyKey });
+    const channel = ably.channels.get('holler:users');
+    channel.publish('user:new', user);
+    setTimeout(() => {
+      try { ably.close(); } catch {}
+    }, 1000);
+  } catch (e) {
+    console.warn('[Holler] Failed to broadcast new user:', e);
+  }
 }

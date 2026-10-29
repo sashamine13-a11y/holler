@@ -6,7 +6,7 @@ import { Input } from '@/components/ui/input';
 import { Card } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
 import { toast } from 'sonner';
-import { AlertCircle, Mail, Lock, User as UserIcon, ArrowRight } from 'lucide-react';
+import { AlertCircle, Mail, Lock, User as UserIcon, ArrowRight, KeyRound, HelpCircle } from 'lucide-react';
 import { useAuth } from '@/hooks/use-auth';
 import { ThemeToggle } from '@/components/theme-toggle';
 
@@ -14,16 +14,28 @@ interface AuthScreenProps {
   onSuccess: (user: { id: string; name: string; email: string; role: 'member' | 'admin'; avatar?: string }) => void;
 }
 
-type Mode = 'signin' | 'signup';
+type Mode = 'signin' | 'signup' | 'forgot';
 
 export function AuthScreen({ onSuccess }: AuthScreenProps) {
-  const { signIn, signUp } = useAuth();
+  const { signIn, signUp, getSecretQuestion, resetPassword } = useAuth();
   const [mode, setMode] = useState<Mode>('signin');
+
+  // Common
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [name, setName] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+
+  // Sign up
+  const [name, setName] = useState('');
+  const [secretQuestion, setSecretQuestion] = useState('');
+  const [secretAnswer, setSecretAnswer] = useState('');
+
+  // Forgot password
+  const [forgotStep, setForgotStep] = useState<'email' | 'answer' | 'reset'>('email');
+  const [currentQuestion, setCurrentQuestion] = useState('');
+  const [secretAnswerInput, setSecretAnswerInput] = useState('');
+  const [newPassword, setNewPassword] = useState('');
 
   const submit = async () => {
     setError('');
@@ -31,9 +43,15 @@ export function AuthScreen({ onSuccess }: AuthScreenProps) {
       setError('Please fill in all fields');
       return;
     }
-    if (mode === 'signup' && !name.trim()) {
-      setError('Please enter your name');
-      return;
+    if (mode === 'signup') {
+      if (!name.trim()) {
+        setError('Please enter your name');
+        return;
+      }
+      if (!secretQuestion.trim() || !secretAnswer.trim()) {
+        setError('Please fill in secret question and answer');
+        return;
+      }
     }
     if (password.length < 6) {
       setError('Password must be at least 6 characters');
@@ -45,7 +63,7 @@ export function AuthScreen({ onSuccess }: AuthScreenProps) {
     if (mode === 'signin') {
       result = await signIn(email.trim(), password);
     } else {
-      result = await signUp(email.trim(), password, name.trim());
+      result = await signUp(email.trim(), password, name.trim(), secretQuestion.trim(), secretAnswer.trim());
     }
     setLoading(false);
 
@@ -55,8 +73,59 @@ export function AuthScreen({ onSuccess }: AuthScreenProps) {
     }
 
     toast.success(mode === 'signin' ? 'Welcome back!' : 'Account created!');
-    // Перезагружаем страницу чтобы ClientApp подхватил сессию из localStorage
     setTimeout(() => window.location.reload(), 500);
+  };
+
+  const submitForgotEmail = () => {
+    setError('');
+    if (!email.trim()) {
+      setError('Please enter your email');
+      return;
+    }
+    const q = getSecretQuestion(email);
+    if (!q) {
+      setError('User not found. Please sign up first.');
+      return;
+    }
+    setCurrentQuestion(q);
+    setForgotStep('answer');
+  };
+
+  const submitForgotAnswer = async () => {
+    setError('');
+    if (!secretAnswerInput.trim()) {
+      setError('Please enter your answer');
+      return;
+    }
+    setForgotStep('reset');
+  };
+
+  const submitResetPassword = async () => {
+    setError('');
+    if (!newPassword) {
+      setError('Please enter new password');
+      return;
+    }
+    if (newPassword.length < 6) {
+      setError('Password must be at least 6 characters');
+      return;
+    }
+
+    setLoading(true);
+    const result = await resetPassword(email, secretAnswerInput, newPassword);
+    setLoading(false);
+
+    if (result.error) {
+      setError(result.error);
+      return;
+    }
+
+    toast.success('Password reset! Please sign in.');
+    setMode('signin');
+    setPassword('');
+    setSecretAnswerInput('');
+    setNewPassword('');
+    setForgotStep('email');
   };
 
   return (
@@ -79,111 +148,277 @@ export function AuthScreen({ onSuccess }: AuthScreenProps) {
           <ThemeToggle />
         </div>
 
-        {/* Mode toggle */}
-        <div className="flex gap-1 p-1 bg-muted/40 rounded-lg mb-5">
-          <button
-            type="button"
-            onClick={() => { setMode('signin'); setError(''); }}
-            className={`flex-1 py-2 text-sm font-medium rounded-md transition-colors
-              ${mode === 'signin' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}
-          >
-            Sign in
-          </button>
-          <button
-            type="button"
-            onClick={() => { setMode('signup'); setError(''); }}
-            className={`flex-1 py-2 text-sm font-medium rounded-md transition-colors
-              ${mode === 'signup' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}
-          >
-            Sign up
-          </button>
-        </div>
+        {mode === 'forgot' ? (
+          // ====================================================================
+          // FORGOT PASSWORD FLOW
+          // ====================================================================
+          <>
+            <div className="flex items-center gap-2 mb-4">
+              <KeyRound className="size-5 text-primary" />
+              <h2 className="text-lg font-semibold">Reset password</h2>
+            </div>
 
-        {/* Form */}
-        <div className="space-y-3">
-          {mode === 'signup' && (
-            <div>
-              <Label htmlFor="name">Name</Label>
-              <div className="relative">
-                <UserIcon className="size-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
-                <Input
-                  id="name"
-                  placeholder="Your name"
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  onKeyDown={(e) => e.key === 'Enter' && submit()}
-                  className="pl-9"
-                  maxLength={32}
-                />
+            {forgotStep === 'email' && (
+              <div className="space-y-3">
+                <p className="text-sm text-muted-foreground">
+                  Enter your email to find your secret question.
+                </p>
+                <div>
+                  <Label htmlFor="forgot-email">Email</Label>
+                  <div className="relative">
+                    <Mail className="size-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+                    <Input
+                      id="forgot-email"
+                      type="email"
+                      placeholder="you@example.com"
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                      onKeyDown={(e) => e.key === 'Enter' && submitForgotEmail()}
+                      className="pl-9"
+                    />
+                  </div>
+                </div>
+                {error && (
+                  <p className="text-xs flex items-center gap-1 font-medium text-destructive">
+                    <AlertCircle className="size-3.5" />
+                    {error}
+                  </p>
+                )}
+                <Button className="w-full" onClick={submitForgotEmail}>
+                  Continue
+                </Button>
               </div>
-            </div>
-          )}
-          <div>
-            <Label htmlFor="email">Email</Label>
-            <div className="relative">
-              <Mail className="size-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                id="email"
-                type="email"
-                placeholder="you@example.com"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && submit()}
-                className="pl-9"
-                autoComplete="email"
-              />
-            </div>
-          </div>
-          <div>
-            <Label htmlFor="password">Password</Label>
-            <div className="relative">
-              <Lock className="size-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                id="password"
-                type="password"
-                placeholder="••••••••"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && submit()}
-                className="pl-9"
-                autoComplete={mode === 'signin' ? 'current-password' : 'new-password'}
-              />
-            </div>
-          </div>
-
-          {error && (
-            <p className="text-xs flex items-center gap-1 font-medium text-destructive">
-              <AlertCircle className="size-3.5" />
-              {error}
-            </p>
-          )}
-
-          <Button className="w-full" onClick={submit} disabled={loading}>
-            {loading ? 'Please wait…' : (
-              <>
-                {mode === 'signin' ? 'Sign in' : 'Create account'}
-                <ArrowRight className="size-4 ml-1" />
-              </>
             )}
-          </Button>
-        </div>
 
-        {/* Switch mode link */}
-        <p className="text-xs text-center text-muted-foreground mt-4">
-          {mode === 'signin' ? "Don't have an account? " : 'Already have an account? '}
-          <button
-            type="button"
-            onClick={() => { setMode(mode === 'signin' ? 'signup' : 'signin'); setError(''); }}
-            className="text-primary hover:underline font-medium"
-          >
-            {mode === 'signin' ? 'Sign up' : 'Sign in'}
-          </button>
-        </p>
+            {forgotStep === 'answer' && (
+              <div className="space-y-3">
+                <div className="p-3 rounded-lg bg-muted/30 border border-border">
+                  <p className="text-xs text-muted-foreground mb-1">Your secret question:</p>
+                  <p className="text-sm font-medium">{currentQuestion}</p>
+                </div>
+                <div>
+                  <Label htmlFor="forgot-answer">Your answer</Label>
+                  <div className="relative">
+                    <HelpCircle className="size-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+                    <Input
+                      id="forgot-answer"
+                      placeholder="Enter your answer"
+                      value={secretAnswerInput}
+                      onChange={(e) => setSecretAnswerInput(e.target.value)}
+                      onKeyDown={(e) => e.key === 'Enter' && submitForgotAnswer()}
+                      className="pl-9"
+                    />
+                  </div>
+                </div>
+                {error && (
+                  <p className="text-xs flex items-center gap-1 font-medium text-destructive">
+                    <AlertCircle className="size-3.5" />
+                    {error}
+                  </p>
+                )}
+                <Button className="w-full" onClick={submitForgotAnswer}>
+                  Continue
+                </Button>
+              </div>
+            )}
 
-        {/* Info note */}
-        <div className="mt-4 p-3 rounded-lg bg-muted/30 border border-border text-xs text-muted-foreground leading-relaxed">
-          Accounts are stored locally in this browser. To use on another device, sign up there too — messages still sync in real-time across all your devices.
-        </div>
+            {forgotStep === 'reset' && (
+              <div className="space-y-3">
+                <p className="text-sm text-muted-foreground">
+                  Enter your new password.
+                </p>
+                <div>
+                  <Label htmlFor="new-password">New password</Label>
+                  <div className="relative">
+                    <Lock className="size-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+                    <Input
+                      id="new-password"
+                      type="password"
+                      placeholder="••••••••"
+                      value={newPassword}
+                      onChange={(e) => setNewPassword(e.target.value)}
+                      onKeyDown={(e) => e.key === 'Enter' && submitResetPassword()}
+                      className="pl-9"
+                    />
+                  </div>
+                </div>
+                {error && (
+                  <p className="text-xs flex items-center gap-1 font-medium text-destructive">
+                    <AlertCircle className="size-3.5" />
+                    {error}
+                  </p>
+                )}
+                <Button className="w-full" onClick={submitResetPassword} disabled={loading}>
+                  {loading ? 'Please wait…' : 'Reset password'}
+                </Button>
+              </div>
+            )}
+
+            <p className="text-xs text-center text-muted-foreground mt-4">
+              Remembered your password?{' '}
+              <button
+                type="button"
+                onClick={() => { setMode('signin'); setError(''); setForgotStep('email'); }}
+                className="text-primary hover:underline font-medium"
+              >
+                Sign in
+              </button>
+            </p>
+          </>
+        ) : (
+          // ====================================================================
+          // SIGN IN / SIGN UP
+          // ====================================================================
+          <>
+            {/* Mode toggle */}
+            <div className="flex gap-1 p-1 bg-muted/40 rounded-lg mb-5">
+              <button
+                type="button"
+                onClick={() => { setMode('signin'); setError(''); }}
+                className={`flex-1 py-2 text-sm font-medium rounded-md transition-colors
+                  ${mode === 'signin' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}
+              >
+                Sign in
+              </button>
+              <button
+                type="button"
+                onClick={() => { setMode('signup'); setError(''); }}
+                className={`flex-1 py-2 text-sm font-medium rounded-md transition-colors
+                  ${mode === 'signup' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}
+              >
+                Sign up
+              </button>
+            </div>
+
+            {/* Form */}
+            <div className="space-y-3">
+              {mode === 'signup' && (
+                <div>
+                  <Label htmlFor="name">Name</Label>
+                  <div className="relative">
+                    <UserIcon className="size-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+                    <Input
+                      id="name"
+                      placeholder="Your name"
+                      value={name}
+                      onChange={(e) => setName(e.target.value)}
+                      onKeyDown={(e) => e.key === 'Enter' && submit()}
+                      className="pl-9"
+                      maxLength={32}
+                    />
+                  </div>
+                </div>
+              )}
+              <div>
+                <Label htmlFor="email">Email</Label>
+                <div className="relative">
+                  <Mail className="size-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+                  <Input
+                    id="email"
+                    type="email"
+                    placeholder="you@example.com"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    onKeyDown={(e) => e.key === 'Enter' && submit()}
+                    className="pl-9"
+                    autoComplete="email"
+                  />
+                </div>
+              </div>
+              <div>
+                <Label htmlFor="password">Password</Label>
+                <div className="relative">
+                  <Lock className="size-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+                  <Input
+                    id="password"
+                    type="password"
+                    placeholder="••••••••"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    onKeyDown={(e) => e.key === 'Enter' && submit()}
+                    className="pl-9"
+                    autoComplete={mode === 'signin' ? 'current-password' : 'new-password'}
+                  />
+                </div>
+              </div>
+
+              {mode === 'signup' && (
+                <>
+                  <div className="pt-2 pb-1">
+                    <p className="text-xs text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
+                      <HelpCircle className="size-3" />
+                      Password recovery
+                    </p>
+                  </div>
+                  <div>
+                    <Label htmlFor="secret-q">Secret question</Label>
+                    <Input
+                      id="secret-q"
+                      placeholder="e.g. What is your pet's name?"
+                      value={secretQuestion}
+                      onChange={(e) => setSecretQuestion(e.target.value)}
+                      onKeyDown={(e) => e.key === 'Enter' && submit()}
+                      maxLength={100}
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor="secret-a">Answer</Label>
+                    <Input
+                      id="secret-a"
+                      placeholder="Your answer"
+                      value={secretAnswer}
+                      onChange={(e) => setSecretAnswer(e.target.value)}
+                      onKeyDown={(e) => e.key === 'Enter' && submit()}
+                      maxLength={50}
+                    />
+                  </div>
+                </>
+              )}
+
+              {error && (
+                <p className="text-xs flex items-center gap-1 font-medium text-destructive">
+                  <AlertCircle className="size-3.5" />
+                  {error}
+                </p>
+              )}
+
+              <Button className="w-full" onClick={submit} disabled={loading}>
+                {loading ? 'Please wait…' : (
+                  <>
+                    {mode === 'signin' ? 'Sign in' : 'Create account'}
+                    <ArrowRight className="size-4 ml-1" />
+                  </>
+                )}
+              </Button>
+            </div>
+
+            {/* Links */}
+            <div className="flex justify-between items-center mt-4 text-xs">
+              <button
+                type="button"
+                onClick={() => { setMode('forgot'); setError(''); setForgotStep('email'); }}
+                className="text-muted-foreground hover:text-primary hover:underline"
+              >
+                Forgot password?
+              </button>
+              <p className="text-muted-foreground">
+                {mode === 'signin' ? "Don't have an account? " : 'Already have an account? '}
+                <button
+                  type="button"
+                  onClick={() => { setMode(mode === 'signin' ? 'signup' : 'signin'); setError(''); }}
+                  className="text-primary hover:underline font-medium"
+                >
+                  {mode === 'signin' ? 'Sign up' : 'Sign in'}
+                </button>
+              </p>
+            </div>
+
+            {/* Info note */}
+            <div className="mt-4 p-3 rounded-lg bg-muted/30 border border-border text-xs text-muted-foreground leading-relaxed">
+              Accounts are stored locally in this browser. Real-time messages sync across all your devices via Ably.
+            </div>
+          </>
+        )}
       </Card>
     </div>
   );
