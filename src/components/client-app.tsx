@@ -1007,7 +1007,7 @@ function Sidebar(props: {
               {/* Chats section */}
               <div className="flex items-center justify-between px-2 py-2">
                 <span className="text-xs uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
-                  <MessageSquare className="size-3" /> Чаты
+                  <MessageSquare className="size-3" /> Chats
                 </span>
                 {isAdmin && (
                   <Button variant="ghost" size="icon" className="size-6" onClick={onAddChannel} aria-label="Create chat">
