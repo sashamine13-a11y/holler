@@ -76,15 +76,17 @@ export function AuthScreen({ onSuccess }: AuthScreenProps) {
     setTimeout(() => window.location.reload(), 500);
   };
 
-  const submitForgotEmail = () => {
+  const submitForgotEmail = async () => {
     setError('');
     if (!email.trim()) {
       setError('Please enter your email');
       return;
     }
-    const q = getSecretQuestion(email);
+    setLoading(true);
+    const q = await getSecretQuestion(email);
+    setLoading(false);
     if (!q) {
-      setError('User not found. Please sign up first.');
+      setError('User not found or no secret question set.');
       return;
     }
     setCurrentQuestion(q);
@@ -114,6 +116,17 @@ export function AuthScreen({ onSuccess }: AuthScreenProps) {
     setLoading(true);
     const result = await resetPassword(email, secretAnswerInput, newPassword);
     setLoading(false);
+
+    if (result.error && result.error.includes('email sent')) {
+      // Informational, not an error
+      toast.success(result.error);
+      setMode('signin');
+      setPassword('');
+      setSecretAnswerInput('');
+      setNewPassword('');
+      setForgotStep('email');
+      return;
+    }
 
     if (result.error) {
       setError(result.error);
