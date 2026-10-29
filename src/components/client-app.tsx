@@ -1447,11 +1447,11 @@ function JoinScreen(props: { onJoin: (code: string, name: string) => Promise<boo
 
         <div className="space-y-3">
           <div>
-            <Label htmlFor="jc">Код класса</Label>
+            <Label htmlFor="jc">Access code</Label>
             <Input
               id="jc"
               inputMode="numeric"
-              placeholder="6 цифр"
+              placeholder="6 digits"
               maxLength={6}
               value={code}
               onChange={(e) => {
@@ -1472,7 +1472,7 @@ function JoinScreen(props: { onJoin: (code: string, name: string) => Promise<boo
             )}
           </div>
           <div>
-            <Label htmlFor="jn">Ваше имя</Label>
+            <Label htmlFor="jn">Your name</Label>
             <Input
               id="jn"
               placeholder="How others will see you"
@@ -1496,7 +1496,7 @@ function JoinScreen(props: { onJoin: (code: string, name: string) => Promise<boo
             )}
           </div>
           <Button className="w-full" onClick={submit} disabled={loading || !code || !name.trim()}>
-            {loading ? 'Проверка…' : 'Войти в класс'}
+            {loading ? 'Checking…' : 'Sign in'}
           </Button>
         </div>
 
@@ -1542,7 +1542,7 @@ function ThemeToggle() {
       variant="ghost"
       size="icon"
       onClick={toggle}
-      aria-label={theme === 'dark' ? 'Включить светлую тему' : 'Включить тёмную тему'}
+      aria-label={theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'}
       className="shrink-0"
     >
       {theme === 'dark' ? <Sun className="size-4" /> : <Moon className="size-4" />}
