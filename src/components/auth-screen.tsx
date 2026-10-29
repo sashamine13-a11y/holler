@@ -55,6 +55,8 @@ export function AuthScreen({ onSuccess }: AuthScreenProps) {
     }
 
     toast.success(mode === 'signin' ? 'Welcome back!' : 'Account created!');
+    // Перезагружаем страницу чтобы ClientApp подхватил сессию из localStorage
+    setTimeout(() => window.location.reload(), 500);
   };
 
   return (
