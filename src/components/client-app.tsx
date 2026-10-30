@@ -22,6 +22,7 @@ import { useSocket, type OnlineMember } from '@/hooks/use-socket';
 import { useAuth } from '@/hooks/use-auth';
 import { AuthScreen } from '@/components/auth-screen';
 import { MessageContextMenu } from '@/components/message-context-menu';
+import { LanguageSwitcher } from '@/components/language-switcher';
 import { useI18n } from '@/lib/i18n';
 import {
   Send, Plus, Pin, BarChart3, EyeOff, Trash2, Info, User as UserIcon,
@@ -55,6 +56,7 @@ interface Message {
   ts: number;
   anon?: boolean;
   image?: string;
+  mediaType?: 'image' | 'video';
 }
 
 interface Room {
@@ -234,6 +236,7 @@ export default function ClientApp() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [inputValue, setInputValue] = useState('');
   const [pendingImage, setPendingImage] = useState<string | undefined>();
+  const [pendingMediaType, setPendingMediaType] = useState<'image' | 'video'>('image');
   const [modalMode, setModalMode] = useState<ModalMode>(null);
   const [searchQuery, setSearchQuery] = useState('');
   // Sidebar tab: 'rooms' (channels and chats) | 'members' (online list)
@@ -418,6 +421,7 @@ export default function ClientApp() {
       ts: Date.now(),
       anon: state.anon,
       image: safeDataUrl(pendingImage),
+      mediaType: pendingMediaType,
     };
     setState(prev => ({
       ...prev,
@@ -426,10 +430,11 @@ export default function ClientApp() {
       ),
       anon: false,
     }));
-    // Broadcast через WebSocket
+    // Broadcast via Ably
     socket?.emit('message:new', { roomId: activeRoom.id, message: msg });
     setInputValue('');
     setPendingImage(undefined);
+    setPendingMediaType('image');
     setReplyTo(null);
   };
 
@@ -576,15 +581,38 @@ export default function ClientApp() {
   const handleAttach = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    if (!/^image\/(jpeg|png|webp)$/.test(file.type)) {
-      toast.error('Only JPG, PNG, or WebP allowed');
+
+    const isVideo = /^video\/(mp4|webm|quicktime)$/.test(file.type);
+    const isImage = /^image\/(jpeg|png|webp)$/.test(file.type);
+    const maxBytes = isVideo ? 8 * 1024 * 1024 : AVATAR_MAX_BYTES; // 8MB for video, 2MB for image
+
+    if (!isImage && !isVideo) {
+      toast.error(t('msg.onlyFormats'));
       return;
     }
-    if (file.size > AVATAR_MAX_BYTES) {
-      toast.error('File larger than 2MB');
+    if (file.size > maxBytes) {
+      toast.error(isVideo ? 'Video must be under 8MB' : t('msg.fileTooLarge'));
       return;
     }
     const reader = new FileReader();
+
+    if (isVideo) {
+      reader.onload = () => {
+        const dataUrl = reader.result as string;
+        if (dataUrl.length > 1_500_000) { // ~1.5MB base64 limit for video
+          toast.error('Video file too large for inline storage. Try a shorter clip.');
+          return;
+        }
+        setPendingImage(dataUrl);
+        setPendingMediaType('video');
+        toast(t('msg.videoAttached'));
+      };
+      reader.onerror = () => toast.error(t('msg.failedRead'));
+      reader.readAsDataURL(file);
+      e.target.value = '';
+      return;
+    }
+
     reader.onload = () => {
       const img = new Image();
       img.onload = () => {
@@ -854,14 +882,18 @@ export default function ClientApp() {
               )}
               {pendingImage && (
                 <div className="mb-2 inline-block relative">
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={pendingImage} alt="attachment" className="max-h-32 rounded-lg border border-border" />
+                  {pendingMediaType === 'video' ? (
+                    <video src={pendingImage} className="max-h-32 rounded-lg border border-border" controls preload="metadata" />
+                  ) : (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={pendingImage} alt="attachment" className="max-h-32 rounded-lg border border-border" />
+                  )}
                   <Button
                     variant="destructive"
                     size="icon"
                     className="absolute -top-2 -right-2 size-6"
-                    onClick={() => setPendingImage(undefined)}
-                    aria-label="Remove image"
+                    onClick={() => { setPendingImage(undefined); setPendingMediaType('image'); }}
+                    aria-label="Remove attachment"
                   >
                     <X className="size-3" />
                   </Button>
@@ -871,7 +903,7 @@ export default function ClientApp() {
                 <input
                   ref={fileInputRef}
                   type="file"
-                  accept="image/jpeg,image/png,image/webp"
+                  accept="image/jpeg,image/png,image/webp,video/mp4,video/webm"
                   onChange={handleAttach}
                   className="hidden"
                 />
@@ -1034,6 +1066,7 @@ function Sidebar(props: {
               )}
             </div>
           </div>
+          <LanguageSwitcher />
           <ThemeToggle />
         </div>
 
@@ -1349,15 +1382,23 @@ function MessageItem(props: { msg: Message; currentUserId: string; showHeader: b
                     : 'bg-card border border-border ' + (showHeader ? 'rounded-tl-sm' : '')}`}
         >
           {msg.text && <p className="whitespace-pre-wrap">{msg.text}</p>}
-          {safeImage && (
+          {safeImage && msg.mediaType === 'video' ? (
+            <video
+              src={safeImage}
+              controls
+              className="rounded-lg max-w-full max-h-80 mt-2"
+              preload="metadata"
+            />
+          ) : safeImage ? (
             // eslint-disable-next-line @next/next/no-img-element
             <img
               src={safeImage}
-              alt="Прикрепление"
-              className="rounded-lg max-w-full max-h-80 mt-2"
+              alt="attachment"
+              className="rounded-lg max-w-full max-h-80 mt-2 cursor-pointer hover:opacity-90 transition-opacity"
               loading="lazy"
+              onClick={() => window.open(safeImage, '_blank')}
             />
-          )}
+          ) : null}
         </div>
       </div>
     </div>
@@ -1965,7 +2006,7 @@ function ProfileModal(props: {
         <div className="flex items-center gap-4">
           <Avatar user={{ id: props.user.id, name, avatar }} size={64} />
           <div className="flex-1">
-            <input ref={fileRef} type="file" accept="image/jpeg,image/png,image/webp" onChange={onFile} className="hidden" />
+            <input ref={fileRef} type="file" accept="image/jpeg,image/png,image/webp,video/mp4,video/webm" onChange={onFile} className="hidden" />
             <Button variant="outline" size="sm" onClick={() => fileRef.current?.click()}>
               <ImagePlus className="size-4 mr-1" /> Upload
             </Button>
