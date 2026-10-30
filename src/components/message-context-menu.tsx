@@ -13,6 +13,7 @@ interface MessageContextMenuProps {
   children: React.ReactNode;
   isOwn: boolean;
   hasText: boolean;
+  isPinned: boolean;
   onReply?: () => void;
   onPin?: () => void;
   onUnpin?: () => void;
@@ -27,6 +28,7 @@ export function MessageContextMenu({
   children,
   isOwn,
   hasText,
+  isPinned,
   onReply,
   onPin,
   onUnpin,
@@ -67,17 +69,20 @@ export function MessageContextMenu({
           </ContextMenuItem>
         )}
         <ContextMenuSeparator />
-        {onPin && (
-          <ContextMenuItem onClick={onPin}>
-            <Pin className="size-4 mr-2" />
-            {t('msg.pin')}
-          </ContextMenuItem>
-        )}
-        {onUnpin && (
-          <ContextMenuItem onClick={onUnpin}>
-            <EyeOff className="size-4 mr-2" />
-            {t('msg.unpin')}
-          </ContextMenuItem>
+        {isPinned ? (
+          onUnpin && (
+            <ContextMenuItem onClick={onUnpin}>
+              <EyeOff className="size-4 mr-2" />
+              {t('msg.unpin')}
+            </ContextMenuItem>
+          )
+        ) : (
+          onPin && (
+            <ContextMenuItem onClick={onPin}>
+              <Pin className="size-4 mr-2" />
+              {t('msg.pin')}
+            </ContextMenuItem>
+          )
         )}
         {isOwn && onDelete && (
           <>

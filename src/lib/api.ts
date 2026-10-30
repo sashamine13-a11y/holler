@@ -267,11 +267,32 @@ export async function loadRoomMembers(roomId: string): Promise<{ member: DbRoomM
 // Pins
 // ============================================================================
 
-export async function pinMessageDb(roomId: string, text: string, userId: string): Promise<boolean> {
+export interface DbPin {
+  messageId: string | null;
+  text: string;
+  ts: number;
+}
+
+/**
+ * Pin a specific message in a room. Replaces any existing pin for that room
+ * (one pin per room). Uses the message_id column introduced in v2.1.
+ */
+export async function pinMessageDb(
+  roomId: string,
+  messageId: string,
+  text: string,
+  userId: string,
+): Promise<boolean> {
+  // Delete any existing pin for this room (one pin per room)
   await supabase.from('pins').delete().eq('room_id', roomId);
   const { error } = await supabase
     .from('pins')
-    .insert({ room_id: roomId, text, created_by: userId });
+    .insert({
+      room_id: roomId,
+      message_id: messageId,
+      text,
+      created_by: userId,
+    });
   if (error) {
     console.warn('[api] pinMessageDb error:', error.message);
     return false;
@@ -279,14 +300,19 @@ export async function pinMessageDb(roomId: string, text: string, userId: string)
   return true;
 }
 
-export async function loadPin(roomId: string): Promise<{ text: string; ts: number } | null> {
+/** Load the pinned message for a room, if any. */
+export async function loadPin(roomId: string): Promise<DbPin | null> {
   const { data, error } = await supabase
     .from('pins')
-    .select('text, created_at')
+    .select('message_id, text, created_at')
     .eq('room_id', roomId)
     .maybeSingle();
   if (error || !data) return null;
-  return { text: data.text, ts: new Date(data.created_at).getTime() };
+  return {
+    messageId: data.message_id ?? null,
+    text: data.text,
+    ts: new Date(data.created_at).getTime(),
+  };
 }
 
 export async function unpinDb(roomId: string): Promise<boolean> {

@@ -38,7 +38,7 @@ import {
   Menu as MenuIcon, LogOut, ImagePlus, Hash, MessageSquare, MoreVertical,
   Search, ChevronRight, Settings, Megaphone, BookOpen, ShoppingBag, Sparkles,
   CheckCircle2, Circle, X, Users, AlertCircle, Sun, Moon, Wifi, WifiOff,
-  Reply, Forward, Copy, Video, Smile, Paperclip, UserPlus,
+  Reply, Forward, Copy, Video, Smile, Paperclip, UserPlus, Pencil,
 } from 'lucide-react';
 
 // ============================================================================
@@ -48,7 +48,7 @@ import {
 type Role = 'member' | 'admin';
 type RoomKind = 'channel' | 'chat';
 type RoomCategory = string; // 'announcements' | 'study' | 'dm' | 'group' | 'general' | ...
-type ModalMode = 'addChannel' | 'pin' | 'poll' | 'anon' | 'profile' | 'info' | 'createGroup' | 'forward' | 'newDm' | null;
+type ModalMode = 'addChannel' | 'poll' | 'anon' | 'profile' | 'info' | 'createGroup' | 'forward' | 'newDm' | null;
 
 interface User {
   id: string;
@@ -110,7 +110,7 @@ interface AnonQuestion {
   authorId: string;
 }
 
-interface Pinned { room: string; text: string; ts: number; }
+interface Pinned { room: string; messageId?: string; text: string; ts: number; }
 
 interface AppState {
   user: User | null;
@@ -408,7 +408,7 @@ export default function ClientApp() {
       // Load pin for this room
       const pin = await loadPin(active);
       if (cancelled) return;
-      setPinned(pin ? { room: active, text: pin.text, ts: pin.ts } : null);
+      setPinned(pin ? { room: active, messageId: pin.messageId ?? undefined, text: pin.text, ts: pin.ts } : null);
     })();
     const unsub = subscribeToRoomMessages(
       active,
@@ -435,7 +435,7 @@ export default function ClientApp() {
     // Also subscribe to pin changes
     const unsubPin = subscribeToPin(active, async () => {
       const pin = await loadPin(active);
-      setPinned(pin ? { room: active, text: pin.text, ts: pin.ts } : null);
+      setPinned(pin ? { room: active, messageId: pin.messageId ?? undefined, text: pin.text, ts: pin.ts } : null);
     });
     return () => { cancelled = true; unsub(); unsubPin(); };
   }, [active, user]);
@@ -696,16 +696,18 @@ export default function ClientApp() {
     setModalMode(null);
   };
 
-  const pinMessage = async (text: string) => {
+  /** Pin a specific message in the active room (replaces any existing pin). */
+  const pinMessage = async (msg: Message) => {
     if (!activeRoom || !user) return;
-    const clean = sanitizeText(text, 500);
-    if (!clean) {
-      toast.error('Enter text');
+    if (msg.id.startsWith('temp_')) {
+      toast.error('Wait for the message to be sent first');
       return;
     }
-    const ok = await pinMessageDb(activeRoom.id, clean, user.id);
+    // Use the message's text (or attachment placeholder) as the pin preview
+    const pinText = msg.text || (msg.image ? (msg.mediaType === 'video' ? '[video]' : '[image]') : '');
+    const ok = await pinMessageDb(activeRoom.id, msg.id, pinText, user.id);
     if (ok) {
-      setPinned({ room: activeRoom.id, text: clean, ts: Date.now() });
+      setPinned({ room: activeRoom.id, messageId: msg.id, text: pinText, ts: Date.now() });
       toast.success(t('room.pinCreated'));
     } else {
       toast.error('Failed to pin');
@@ -1064,9 +1066,6 @@ export default function ClientApp() {
                     <X className="size-4 mr-2" /> {t('room.unpin')}
                   </DropdownMenuItem>
                 )}
-                <DropdownMenuItem onClick={() => setModalMode('pin')}>
-                  <Pin className="size-4 mr-2" /> {t('room.pin')}
-                </DropdownMenuItem>
                 <DropdownMenuItem onClick={() => setModalMode('poll')}>
                   <BarChart3 className="size-4 mr-2" /> {t('poll.new')}
                 </DropdownMenuItem>
@@ -1142,6 +1141,7 @@ export default function ClientApp() {
                         msg={it}
                         currentUserId={user.id}
                         showHeader={showHeader}
+                        isPinned={activePinned?.messageId === it.id}
                         isEditing={editMsg?.id === it.id}
                         editText={editMsg?.id === it.id ? editText : (it.text ?? '')}
                         onEditChange={setEditText}
@@ -1149,7 +1149,7 @@ export default function ClientApp() {
                         onEditCancel={cancelEdit}
                         onReply={(m) => setReplyTo(m)}
                         onForward={(m) => { setForwardMsg(m); setModalMode('forward'); }}
-                        onPin={() => setModalMode('pin')}
+                        onPin={(m) => pinMessage(m)}
                         onUnpin={activePinned ? unpin : undefined}
                         onDelete={(m) => deleteMessage(m)}
                         onEdit={(m) => startEdit(m)}
@@ -1320,9 +1320,6 @@ export default function ClientApp() {
           rooms={rooms}
           currentRoomId={activeRoom?.id}
         />
-      )}
-      {modalMode === 'pin' && (
-        <PinModal onClose={() => setModalMode(null)} onPin={pinMessage} roomName={activeRoom?.name || ''} />
       )}
       {modalMode === 'poll' && (
         <PollModal onClose={() => setModalMode(null)} onCreate={createPoll} />
@@ -1770,16 +1767,86 @@ function Avatar(props: { user: { id: string; name: string; avatar?: string }; si
 // MessageItem — с группировкой по автору
 // ============================================================================
 
-function MessageItem(props: { msg: Message; currentUserId: string; showHeader: boolean; isEditing: boolean; editText: string; onEditChange: (v: string) => void; onEditSave: () => void; onEditCancel: () => void; onReply?: (msg: Message) => void; onPin?: () => void; onUnpin?: () => void; onDelete?: (msg: Message) => void; onForward?: (msg: Message) => void; onCopy?: (text: string) => void; onEdit?: (msg: Message) => void; t: (key: string) => string }) {
-  const { msg, currentUserId, showHeader, isEditing, editText, onEditChange, onEditSave, onEditCancel, onReply, onPin, onUnpin, onDelete, onForward, onCopy, onEdit, t } = props;
+function MessageItem(props: { msg: Message; currentUserId: string; showHeader: boolean; isPinned: boolean; isEditing: boolean; editText: string; onEditChange: (v: string) => void; onEditSave: () => void; onEditCancel: () => void; onReply?: (msg: Message) => void; onPin?: (msg: Message) => void; onUnpin?: () => void; onDelete?: (msg: Message) => void; onForward?: (msg: Message) => void; onCopy?: (text: string) => void; onEdit?: (msg: Message) => void; t: (key: string) => string }) {
+  const { msg, currentUserId, showHeader, isPinned, isEditing, editText, onEditChange, onEditSave, onEditCancel, onReply, onPin, onUnpin, onDelete, onForward, onCopy, onEdit, t } = props;
   const mine = msg.authorId === currentUserId;
   // mediaType comes from the real media_type column (schema v2)
   const isVideo = msg.mediaType === 'video';
   const safeImage = safeDataUrl(msg.image);
 
+  // Action callbacks (shared between context menu and ⋮ dropdown)
+  const onReplyCb = onReply ? () => onReply(msg) : undefined;
+  const onForwardCb = onForward ? () => onForward(msg) : undefined;
+  const onDeleteCb = onDelete ? () => onDelete(msg) : undefined;
+  const onEditCb = (onEdit && mine && msg.text) ? () => onEdit(msg) : undefined;
+  const onCopyCb = (onCopy && msg.text) ? () => onCopy(msg.text) : undefined;
+  const onPinCb = onPin ? () => onPin(msg) : undefined;
+
+  // ⋮ dropdown menu content (full set of actions, shown on hover)
+  const moreMenu = (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button
+          type="button"
+          aria-label={t('msg.moreActions')}
+          className={`group/more:opacity-100 size-7 shrink-0 inline-flex items-center justify-center rounded-full
+            text-muted-foreground hover:bg-foreground/10 hover:text-foreground transition-opacity
+            ${mine ? 'opacity-0 group-hover/msg:opacity-100' : 'opacity-0 group-hover/msg:opacity-100'}`}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <MoreVertical className="size-4" />
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align={mine ? 'end' : 'start'} className="w-48 dropdown-in">
+        {onReplyCb && (
+          <DropdownMenuItem onClick={onReplyCb}>
+            <Reply className="size-4 mr-2" /> {t('msg.reply')}
+          </DropdownMenuItem>
+        )}
+        {onCopyCb && (
+          <DropdownMenuItem onClick={onCopyCb}>
+            <Copy className="size-4 mr-2" /> {t('msg.copy')}
+          </DropdownMenuItem>
+        )}
+        {onForwardCb && (
+          <DropdownMenuItem onClick={onForwardCb}>
+            <Forward className="size-4 mr-2" /> {t('msg.forward')}
+          </DropdownMenuItem>
+        )}
+        {onEditCb && (
+          <DropdownMenuItem onClick={onEditCb}>
+            <Pencil className="size-4 mr-2" /> {t('msg.edit')}
+          </DropdownMenuItem>
+        )}
+        <DropdownMenuSeparator />
+        {isPinned ? (
+          onUnpin && (
+            <DropdownMenuItem onClick={onUnpin}>
+              <EyeOff className="size-4 mr-2" /> {t('msg.unpin')}
+            </DropdownMenuItem>
+          )
+        ) : (
+          onPinCb && (
+            <DropdownMenuItem onClick={onPinCb}>
+              <Pin className="size-4 mr-2" /> {t('msg.pin')}
+            </DropdownMenuItem>
+          )
+        )}
+        {onDeleteCb && (
+          <>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onClick={onDeleteCb} className="text-destructive">
+              <Trash2 className="size-4 mr-2" /> {t('msg.delete')}
+            </DropdownMenuItem>
+          </>
+        )}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+
   return (
-    <MessageContextMenu isOwn={mine} hasText={Boolean(msg.text)} onReply={onReply ? () => onReply(msg) : undefined} onPin={onPin} onUnpin={onUnpin} onDelete={onDelete ? () => onDelete(msg) : undefined} onForward={onForward ? () => onForward(msg) : undefined} onCopy={onCopy && msg.text ? () => onCopy(msg.text) : undefined} onEdit={onEdit && mine && msg.text ? () => onEdit(msg) : undefined} t={t}>
-    <div className={`flex gap-3 ${mine ? 'flex-row-reverse' : ''} ${showHeader ? 'mt-2' : 'mt-0.5'}`}>
+    <MessageContextMenu isOwn={mine} hasText={Boolean(msg.text)} isPinned={isPinned} onReply={onReplyCb} onPin={onPinCb} onUnpin={onUnpin} onDelete={onDeleteCb} onForward={onForwardCb} onCopy={onCopyCb} onEdit={onEditCb} t={t}>
+    <div className={`group/msg flex gap-3 ${mine ? 'flex-row-reverse' : ''} ${showHeader ? 'mt-2' : 'mt-0.5'}`}>
       <div className="w-9 shrink-0 flex justify-center">
         {showHeader ? (
           <div
@@ -1804,101 +1871,110 @@ function MessageItem(props: { msg: Message; currentUserId: string; showHeader: b
             )}
             <span className="text-muted-foreground">{formatTime(msg.ts)}</span>
             {msg.editedAt && <span className="text-muted-foreground text-[10px] italic">({t('msg.edited')})</span>}
+            {isPinned && (
+              <span className="inline-flex items-center gap-0.5 text-amber-500 text-[10px] font-medium">
+                <Pin className="size-2.5" /> {t('msg.pinned')}
+              </span>
+            )}
           </div>
         )}
-        <div
-          className={`rounded-2xl px-3 py-2 text-sm break-words
-            ${mine ? 'bg-primary text-primary-foreground ' + (showHeader ? 'rounded-tr-sm' : '')
-                    : 'bg-card border border-border ' + (showHeader ? 'rounded-tl-sm' : '')}`}
-        >
-          {/* Reply quote (schema v2 reply_to + resolved snippet) */}
-          {msg.replyTo && (
-            <div className={`mb-1.5 px-2 py-1 rounded-md text-xs border-l-2 ${
-              mine ? 'bg-primary-foreground/10 border-primary-foreground/60' : 'bg-muted/50 border-primary'
-            }`}>
-              <div className={`font-medium text-[10px] uppercase tracking-wide ${mine ? 'text-primary-foreground/80' : 'text-primary'}`}>
-                {t('msg.reply')}
+        <div className={`flex items-end gap-1 ${mine ? 'flex-row-reverse' : 'flex-row'}`}>
+          <div
+            className={`rounded-2xl px-3 py-2 text-sm break-words
+              ${mine ? 'bg-primary text-primary-foreground ' + (showHeader ? 'rounded-tr-sm' : '')
+                      : 'bg-card border border-border ' + (showHeader ? 'rounded-tl-sm' : '')}`}
+          >
+            {/* Reply quote (schema v2 reply_to + resolved snippet) */}
+            {msg.replyTo && (
+              <div className={`mb-1.5 px-2 py-1 rounded-md text-xs border-l-2 ${
+                mine ? 'bg-primary-foreground/10 border-primary-foreground/60' : 'bg-muted/50 border-primary'
+              }`}>
+                <div className={`font-medium text-[10px] uppercase tracking-wide ${mine ? 'text-primary-foreground/80' : 'text-primary'}`}>
+                  {t('msg.reply')}
+                </div>
+                <div className={`truncate ${mine ? 'text-primary-foreground/80' : 'text-muted-foreground'}`}>
+                  {msg.replySnippet ?? 'Original message'}
+                </div>
               </div>
-              <div className={`truncate ${mine ? 'text-primary-foreground/80' : 'text-muted-foreground'}`}>
-                {msg.replySnippet ?? 'Original message'}
+            )}
+            {/* Forward quote (schema v2 forwarded_from) */}
+            {msg.forwardedFrom && (
+              <div className={`mb-1.5 px-2 py-1 rounded-md text-xs border-l-2 ${
+                mine ? 'bg-primary-foreground/10 border-primary-foreground/60' : 'bg-muted/50 border-amber-500'
+              }`}>
+                <div className={`font-medium text-[10px] uppercase tracking-wide flex items-center gap-1 ${mine ? 'text-primary-foreground/80' : 'text-amber-500'}`}>
+                  <Forward className="size-2.5" /> {t('msg.forwardedFrom')}
+                </div>
+                <div className={`text-[10px] ${mine ? 'text-primary-foreground/70' : 'text-muted-foreground'}`}>
+                  {msg.forwardedFrom}
+                </div>
               </div>
-            </div>
-          )}
-          {/* Forward quote (schema v2 forwarded_from) */}
-          {msg.forwardedFrom && (
-            <div className={`mb-1.5 px-2 py-1 rounded-md text-xs border-l-2 ${
-              mine ? 'bg-primary-foreground/10 border-primary-foreground/60' : 'bg-muted/50 border-amber-500'
-            }`}>
-              <div className={`font-medium text-[10px] uppercase tracking-wide flex items-center gap-1 ${mine ? 'text-primary-foreground/80' : 'text-amber-500'}`}>
-                <Forward className="size-2.5" /> {t('msg.forwardedFrom')}
-              </div>
-              <div className={`text-[10px] ${mine ? 'text-primary-foreground/70' : 'text-muted-foreground'}`}>
-                {msg.forwardedFrom}
-              </div>
-            </div>
-          )}
-          {isEditing ? (
-            <div className="flex flex-col gap-1.5 min-w-[220px]">
-              <textarea
-                autoFocus
-                value={editText}
-                onChange={(e) => onEditChange(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' && !e.shiftKey) {
-                    e.preventDefault();
-                    onEditSave();
-                  } else if (e.key === 'Escape') {
-                    e.preventDefault();
-                    onEditCancel();
-                  }
-                }}
-                className={`w-full resize-none min-h-[60px] max-h-40 rounded-md p-2 text-sm outline-none
-                  ${mine
-                    ? 'bg-primary-foreground/10 text-primary-foreground placeholder:text-primary-foreground/60 border border-primary-foreground/30'
-                    : 'bg-background text-foreground border border-border'}`}
-                maxLength={MAX_MSG_LEN}
-              />
-              <div className="flex items-center justify-end gap-1.5">
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  className="h-7 px-2 text-xs"
-                  onClick={onEditCancel}
-                >
-                  {t('cancel')}
-                </Button>
-                <Button
-                  size="sm"
-                  className="h-7 px-3 text-xs"
-                  onClick={onEditSave}
-                  disabled={!editText.trim()}
-                >
-                  {t('save')}
-                </Button>
-              </div>
-            </div>
-          ) : (
-            <>
-              {msg.text && <p className="whitespace-pre-wrap">{msg.text}</p>}
-              {safeImage && isVideo ? (
-                <video
-                  src={safeImage}
-                  controls
-                  className="rounded-lg max-w-full max-h-80 mt-2"
-                  preload="metadata"
+            )}
+            {isEditing ? (
+              <div className="flex flex-col gap-1.5 min-w-[220px]">
+                <textarea
+                  autoFocus
+                  value={editText}
+                  onChange={(e) => onEditChange(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && !e.shiftKey) {
+                      e.preventDefault();
+                      onEditSave();
+                    } else if (e.key === 'Escape') {
+                      e.preventDefault();
+                      onEditCancel();
+                    }
+                  }}
+                  className={`w-full resize-none min-h-[60px] max-h-40 rounded-md p-2 text-sm outline-none
+                    ${mine
+                      ? 'bg-primary-foreground/10 text-primary-foreground placeholder:text-primary-foreground/60 border border-primary-foreground/30'
+                      : 'bg-background text-foreground border border-border'}`}
+                  maxLength={MAX_MSG_LEN}
                 />
-              ) : safeImage ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
-                  src={safeImage}
-                  alt="attachment"
-                  className="rounded-lg max-w-full max-h-80 mt-2 cursor-pointer hover:opacity-90 transition-opacity"
-                  loading="lazy"
-                  onClick={() => window.open(safeImage, '_blank')}
-                />
-              ) : null}
-            </>
-          )}
+                <div className="flex items-center justify-end gap-1.5">
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="h-7 px-2 text-xs"
+                    onClick={onEditCancel}
+                  >
+                    {t('cancel')}
+                  </Button>
+                  <Button
+                    size="sm"
+                    className="h-7 px-3 text-xs"
+                    onClick={onEditSave}
+                    disabled={!editText.trim()}
+                  >
+                    {t('save')}
+                  </Button>
+                </div>
+              </div>
+            ) : (
+              <>
+                {msg.text && <p className="whitespace-pre-wrap">{msg.text}</p>}
+                {safeImage && isVideo ? (
+                  <video
+                    src={safeImage}
+                    controls
+                    className="rounded-lg max-w-full max-h-80 mt-2"
+                    preload="metadata"
+                  />
+                ) : safeImage ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={safeImage}
+                    alt="attachment"
+                    className="rounded-lg max-w-full max-h-80 mt-2 cursor-pointer hover:opacity-90 transition-opacity"
+                    loading="lazy"
+                    onClick={() => window.open(safeImage, '_blank')}
+                  />
+                ) : null}
+              </>
+            )}
+          </div>
+          {/* ⋮ More button — appears on hover */}
+          {!isEditing && moreMenu}
         </div>
       </div>
     </div>
@@ -2295,27 +2371,6 @@ function AddRoomModal(props: { onClose: () => void; onCreate: (name: string, abo
             ))}
           </div>
         </div>
-      </div>
-    </ModalShell>
-  );
-}
-
-function PinModal(props: { onClose: () => void; onPin: (text: string) => void; roomName: string }) {
-  const [text, setText] = useState('');
-  return (
-    <ModalShell
-      title="Pin сообщение"
-      description={`The pin will appear at the top of the room «${props.roomName}».`}
-      onClose={props.onClose}
-      footer={
-        <Button onClick={() => { props.onPin(text); props.onClose(); }} disabled={!text.trim()}>
-          Pin
-        </Button>
-      }
-    >
-      <div>
-        <Label htmlFor="pt">Text</Label>
-        <Textarea id="pt" rows={3} maxLength={500} value={text} onChange={(e) => setText(e.target.value)} placeholder="What to pin?" />
       </div>
     </ModalShell>
   );
