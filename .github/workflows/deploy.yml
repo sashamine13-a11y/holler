@@ -23,8 +23,7 @@ jobs:
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: '1.3.14'
+        # Use default latest version — pinned versions can cause setup-bun to fail.
 
       - name: Setup Node.js
         uses: actions/setup-node@v4

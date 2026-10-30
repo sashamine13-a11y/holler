@@ -17,11 +17,12 @@ const nextConfig: NextConfig = {
   images: { unoptimized: true },
   reactStrictMode: false,
   typescript: { ignoreBuildErrors: true },
-  eslint: { ignoreDuringBuilds: true },
   trailingSlash: true,
   // GitHub Pages: https://user.github.io/holler/
   basePath: `/${repo}`,
   assetPrefix: `/${repo}/`,
+  // Disable ESLint during build (Next 16 runs it by default).
+  ...({ eslint: { ignoreDuringBuilds: true } } as object),
 };
 
 export default nextConfig;
