@@ -54,9 +54,10 @@ elif command -v bunx >/dev/null 2>&1; then
 else
   NEXT_BIN="npx next"
 fi
-echo "Using: $NEXT_BIN build"
-if ! $NEXT_BIN build 2>&1; then
-  echo "❌ Next.js build failed"
+# Use webpack instead of Turbopack for better error reporting on CI.
+echo "Using: $NEXT_BIN build --webpack"
+if ! $NEXT_BIN build --webpack 2>&1; then
+  echo "❌ Next.js build failed (webpack mode)"
   exit 1
 fi
 
