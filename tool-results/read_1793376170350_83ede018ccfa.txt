@@ -1,0 +1,702 @@
+  1360→              </div>
+  1361→              <Button variant="ghost" size="icon" className="size-7 shrink-0" onClick={unpin} aria-label={t('room.unpin')}>
+  1362→                <X className="size-3.5" />
+  1363→              </Button>
+  1364→            </div>
+  1365→          )}
+  1366→
+  1367→          {/* Messages */}
+  1368→          <div ref={scrollRef} onScroll={onScrollMessages} className="flex-1 overflow-y-auto scroll-thin px-3 sm:px-4 py-4">
+  1369→            <div key={active} className="max-w-3xl mx-auto flex flex-col gap-2.5 room-switch">
+  1370→              {loadingRooms && (
+  1371→                <div className="flex flex-col gap-3 pt-2 fade-in">
+  1372→                  {[46, 68, 40, 60, 34].map((w, i) => (
+  1373→                    <div key={i} className={`flex ${i % 2 ? 'justify-end' : 'justify-start'}`}>
+  1374→                      <div className="skeleton h-10" style={{ width: `${w * 6}px` }} />
+  1375→                    </div>
+  1376→                  ))}
+  1377→                </div>
+  1378→              )}
+  1379→              {!loadingRooms && groupedItems.length === 0 && roomPolls.length === 0 && roomAnonQs.length === 0 && (
+  1380→                <div className="text-center py-16 fade-in">
+  1381→                  <div className="relative size-24 mx-auto mb-4">
+  1382→                    <div className="aurora-blob absolute inset-2 rounded-full blur-2xl opacity-70" style={{ background: 'var(--grad-brand)' }} />
+  1383→                    <div className="relative size-24 rounded-full glass border border-border flex items-center justify-center">
+  1384→                      <MessageSquare className="size-9 text-primary" />
+  1385→                    </div>
+  1386→                  </div>
+  1387→                  <p className="text-base font-semibold">{t('room.empty')}</p>
+  1388→                  <p className="text-sm text-muted-foreground mt-1">{t('room.emptyHint')}</p>
+  1389→                </div>
+  1390→              )}
+  1391→
+  1392→              {groupedItems.map((group, gi) => (
+  1393→                <div key={gi} className="flex flex-col gap-2.5">
+  1394→                  <div className="flex items-center gap-3 my-2.5 fade-in">
+  1395→                    <div className="flex-1 h-px bg-border" />
+  1396→                    <span className="text-[11px] text-muted-foreground uppercase tracking-wider px-3 py-1 rounded-full bg-muted/50 border border-border/60">{group.date}</span>
+  1397→                    <div className="flex-1 h-px bg-border" />
+  1398→                  </div>
+  1399→                  {group.items.map((it, i) => {
+  1400→                    const prev = group.items[i - 1];
+  1401→                    const showHeader = !prev || prev.authorId !== it.authorId || prev.anon !== it.anon || (it.ts - prev.ts) > 5 * 60 * 1000;
+  1402→                    return (
+  1403→                      <MessageItem
+  1404→                        key={it.id}
+  1405→                        msg={it}
+  1406→                        currentUserId={user.id}
+  1407→                        showHeader={showHeader}
+  1408→                        isPinned={activePinned?.messageId === it.id}
+  1409→                        isEditing={editMsg?.id === it.id}
+  1410→                        editText={editMsg?.id === it.id ? editText : (it.text ?? '')}
+  1411→                        onEditChange={setEditText}
+  1412→                        onEditSave={saveEdit}
+  1413→                        onEditCancel={cancelEdit}
+  1414→                        onReply={(m) => setReplyTo(m)}
+  1415→                        onForward={(m) => { setForwardMsg(m); setModalMode('forward'); }}
+  1416→                        onPin={(m) => pinMessage(m)}
+  1417→                        onUnpin={activePinned ? unpin : undefined}
+  1418→                        onDelete={(m) => deleteMessage(m)}
+  1419→                        onEdit={(m) => startEdit(m)}
+  1420→                        onCopy={(text) => {
+  1421→                          navigator.clipboard?.writeText(text);
+  1422→                          toast(t('msg.copied'));
+  1423→                        }}
+  1424→                        t={t}
+  1425→                      />
+  1426→                    );
+  1427→                  })}
+  1428→                </div>
+  1429→              ))}
+  1430→
+  1431→              {activeRoom?.kind === 'chat' && roomPolls.map(p => (
+  1432→                <PollCard key={p.id} poll={p} currentUserId={user.id} onVote={votePoll} t={t} />
+  1433→              ))}
+  1434→
+  1435→              {activeRoom?.kind === 'chat' && roomAnonQs.map(q => (
+  1436→                <AnonCard key={q.id} q={q} onAnswer={answerAnon} t={t} />
+  1437→              ))}
+  1438→
+  1439→              <div ref={messagesEndRef} />
+  1440→            </div>
+  1441→          </div>
+  1442→
+  1443→          {/* Jump to latest */}
+  1444→          {showJump && (
+  1445→            <button
+  1446→              type="button"
+  1447→              onClick={jumpToBottom}
+  1448→              aria-label={t('scroll.bottom')}
+  1449→              className="absolute bottom-32 right-4 sm:right-6 z-10 size-10 rounded-full glass border border-border shadow-lg flex items-center justify-center text-primary hover:scale-105 transition-transform"
+  1450→            >
+  1451→              <ArrowDown className="size-4" />
+  1452→              {newBelow > 0 && (
+  1453→                <span className="brand-mark absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 rounded-full text-[10px] font-bold flex items-center justify-center tabular-nums">
+  1454→                  {newBelow > 9 ? '9+' : newBelow}
+  1455→                </span>
+  1456→              )}
+  1457→            </button>
+  1458→          )}
+  1459→
+  1460→          {/* Composer */}
+  1461→          <div className="glass border-t border-border px-3 sm:px-4 pt-2.5" style={{ paddingBottom: 'max(0.625rem, env(safe-area-inset-bottom))' }}>
+  1462→            <div className="max-w-3xl mx-auto flex flex-col gap-2">
+  1463→              {/* Anonymous mode chip */}
+  1464→              {anon && (
+  1465→                <div className="flex items-center justify-between px-3 py-1.5 rounded-xl bg-primary/10 border border-primary/25 text-xs fade-in">
+  1466→                  <span className="inline-flex items-center gap-1.5 font-medium text-primary">
+  1467→                    <EyeOff className="size-3.5" /> {t('msg.anonModeOn')}
+  1468→                  </span>
+  1469→                  <button type="button" className="text-primary/70 hover:text-primary" onClick={toggleAnon} aria-label={t('msg.anonymous')}>
+  1470→                    <X className="size-3.5" />
+  1471→                  </button>
+  1472→                </div>
+  1473→              )}
+  1474→              {/* Reply preview */}
+  1475→              {replyTo && (
+  1476→                <div className="flex items-center gap-2 p-2 rounded-xl bg-muted/40 border border-border text-xs">
+  1477→                  <Reply className="size-3.5 text-primary shrink-0" />
+  1478→                  <div className="flex-1 min-w-0">
+  1479→                    <span className="text-muted-foreground">{t('msg.repliedTo')} </span>
+  1480→                    <span className="font-medium">{replyTo.authorName}: </span>
+  1481→                    <span className="text-muted-foreground truncate">{replyTo.text?.slice(0, 60) || '...'}</span>
+  1482→                  </div>
+  1483→                  <Button variant="ghost" size="icon" className="size-5 shrink-0" onClick={() => setReplyTo(null)}>
+  1484→                    <X className="size-3" />
+  1485→                  </Button>
+  1486→                </div>
+  1487→              )}
+  1488→              {/* Forward preview */}
+  1489→              {forwardMsg && (
+  1490→                <div className="flex items-center gap-2 p-2 rounded-xl bg-muted/40 border border-border text-xs">
+  1491→                  <Forward className="size-3.5 text-primary shrink-0" />
+  1492→                  <div className="flex-1 min-w-0">
+  1493→                    <span className="text-muted-foreground">{t('msg.forwardedFrom')} </span>
+  1494→                    <span className="font-medium">{forwardMsg.authorName}: </span>
+  1495→                    <span className="text-muted-foreground truncate">{forwardMsg.text?.slice(0, 60) || '...'}</span>
+  1496→                  </div>
+  1497→                  <Button variant="ghost" size="icon" className="size-5 shrink-0" onClick={() => setForwardMsg(null)}>
+  1498→                    <X className="size-3" />
+  1499→                  </Button>
+  1500→                </div>
+  1501→              )}
+  1502→              {/* Attachment preview */}
+  1503→              {pendingImage && (
+  1504→                <div className="flex items-center gap-2.5 p-2 rounded-xl bg-muted/40 border border-border">
+  1505→                  {pendingMediaType === 'audio' ? (
+  1506→                    <audio src={pendingImage} controls className="h-9 w-64 max-w-full" />
+  1507→                  ) : pendingMediaType === 'video' ? (
+  1508→                    <video src={pendingImage} className="max-h-28 rounded-lg border border-border" controls preload="metadata" />
+  1509→                  ) : (
+  1510→                    // eslint-disable-next-line @next/next/no-img-element
+  1511→                    <img src={pendingImage} alt="attachment" className="max-h-28 rounded-lg border border-border" />
+  1512→                  )}
+  1513→                  <Button
+  1514→                    variant="ghost"
+  1515→                    size="icon"
+  1516→                    className="size-6 shrink-0 ml-auto"
+  1517→                    onClick={() => { setPendingImage(undefined); setPendingMediaType('image'); }}
+  1518→                    aria-label="Remove attachment"
+  1519→                  >
+  1520→                    <X className="size-3.5" />
+  1521→                  </Button>
+  1522→                </div>
+  1523→              )}
+  1524→              {rec.on ? (
+  1525→                /* Voice recording bar */
+  1526→                <div className="flex items-center gap-3 h-[46px] px-4 rounded-2xl bg-destructive/10 border border-destructive/30">
+  1527→                  <span className="rec-dot size-3 rounded-full bg-destructive shrink-0" />
+  1528→                  <span className="text-sm font-semibold tabular-nums">
+  1529→                    {String(Math.floor(rec.secs / 60)).padStart(2, '0')}:{String(rec.secs % 60).padStart(2, '0')}
+  1530→                  </span>
+  1531→                  <span className="flex-1 flex items-end justify-center gap-[3px] h-5" aria-hidden>
+  1532→                    {[8, 14, 10, 18, 12, 16, 9, 15, 11, 17, 8, 13].map((h, i) => (
+  1533→                      <span
+  1534→                        key={i}
+  1535→                        className="typing-dot w-[3px] rounded-full bg-destructive/60"
+  1536→                        style={{ height: `${h}px`, animationDelay: `${i * 0.09}s` }}
+  1537→                      />
+  1538→                    ))}
+  1539→                  </span>
+  1540→                  <Button variant="ghost" size="icon" className="size-9 shrink-0 text-destructive" onClick={() => finishVoice(false)} aria-label={t('msg.voiceCancel')}>
+  1541→                    <Trash2 className="size-4" />
+  1542→                  </Button>
+  1543→                  <Button size="icon" className="size-9 rounded-full shrink-0" onClick={() => finishVoice(true)} aria-label={t('msg.voiceStop')}>
+  1544→                    <Send className="size-4" />
+  1545→                  </Button>
+  1546→                </div>
+  1547→              ) : (
+  1548→                <div className="flex items-end gap-1.5">
+  1549→                  <input
+  1550→                    ref={fileInputRef}
+  1551→                    type="file"
+  1552→                    accept="image/jpeg,image/png,image/webp,video/mp4,video/webm"
+  1553→                    onChange={handleAttach}
+  1554→                    className="hidden"
+  1555→                  />
+  1556→                  {/* Room actions ⋮ — polls, anonymous questions, info, profile */}
+  1557→                  <DropdownMenu>
+  1558→                    <DropdownMenuTrigger asChild>
+  1559→                      <Button variant="ghost" size="icon" className="shrink-0 rounded-xl" aria-label={t('msg.moreActions')}>
+  1560→                        <MoreVertical className="size-5" />
+  1561→                      </Button>
+  1562→                    </DropdownMenuTrigger>
+  1563→                    <DropdownMenuContent align="start" className="w-56 dropdown-in">
+  1564→                      {activePinned && (
+  1565→                        <DropdownMenuItem onClick={unpin}>
+  1566→                          <X className="size-4 mr-2" /> {t('room.unpin')}
+  1567→                        </DropdownMenuItem>
+  1568→                      )}
+  1569→                      <DropdownMenuItem onClick={() => setModalMode('poll')}>
+  1570→                        <BarChart3 className="size-4 mr-2" /> {t('poll.new')}
+  1571→                      </DropdownMenuItem>
+  1572→                      <DropdownMenuItem onClick={() => setModalMode('anon')}>
+  1573→                        <EyeOff className="size-4 mr-2" /> {t('anon.new')}
+  1574→                      </DropdownMenuItem>
+  1575→                      <DropdownMenuItem onClick={toggleAnon} className={anon ? 'text-primary' : ''}>
+  1576→                        <EyeOff className="size-4 mr-2" /> {t('msg.anonymous')}
+  1577→                        {anon && <CheckCircle2 className="size-3.5 ml-auto" />}
+  1578→                      </DropdownMenuItem>
+  1579→                      <DropdownMenuSeparator />
+  1580→                      <DropdownMenuItem onClick={() => setModalMode('info')}>
+  1581→                        <Info className="size-4 mr-2" /> {t('room.info')}
+  1582→                      </DropdownMenuItem>
+  1583→                      <DropdownMenuItem onClick={() => setModalMode('profile')}>
+  1584→                        <UserIcon className="size-4 mr-2" /> {t('nav.openProfile')}
+  1585→                      </DropdownMenuItem>
+  1586→                      {/* Delete: channels for admin; DMs/groups for creator or admin */}
+  1587→                      {activeRoom && (activeRoom.roomType === 'channel' ? isAdmin : true) && (
+  1588→                        <>
+  1589→                          <DropdownMenuSeparator />
+  1590→                          <DropdownMenuItem className="text-destructive" onClick={() => {
+  1591→                            if (confirm(`Delete «${activeRoom.name}»?`)) deleteRoom(activeRoom.id);
+  1592→                          }}>
+  1593→                            <Trash2 className="size-4 mr-2" /> {t('room.deleteRoom')}
+  1594→                          </DropdownMenuItem>
+  1595→                        </>
+  1596→                      )}
+  1597→                    </DropdownMenuContent>
+  1598→                  </DropdownMenu>
+  1599→                  {/* Attach photo / video */}
+  1600→                  <Tooltip>
+  1601→                    <TooltipTrigger asChild>
+  1602→                      <Button variant="ghost" size="icon" className="shrink-0 rounded-xl" onClick={() => fileInputRef.current?.click()} aria-label={t('msg.attach')}>
+  1603→                        <ImagePlus className="size-5" />
+  1604→                      </Button>
+  1605→                    </TooltipTrigger>
+  1606→                    <TooltipContent>{t('msg.attach')}</TooltipContent>
+  1607→                  </Tooltip>
+  1608→                  <Textarea
+  1609→                    value={inputValue}
+  1610→                    onChange={(e) => handleInputChange(e.target.value)}
+  1611→                    onKeyDown={(e) => {
+  1612→                      if (e.key === 'Enter' && !e.shiftKey) {
+  1613→                        e.preventDefault();
+  1614→                        sendMessage();
+  1615→                      }
+  1616→                    }}
+  1617→                    placeholder={t('msg.typePlaceholder')}
+  1618→                    rows={1}
+  1619→                    className="resize-none min-h-[42px] max-h-32 flex-1 rounded-2xl bg-muted/40 border-border/60"
+  1620→                    maxLength={MAX_MSG_LEN}
+  1621→                  />
+  1622→                  {/* Voice recorder */}
+  1623→                  <Tooltip>
+  1624→                    <TooltipTrigger asChild>
+  1625→                      <Button variant="ghost" size="icon" className="shrink-0 rounded-xl" onClick={startVoice} aria-label={t('msg.voiceRecord')}>
+  1626→                        <Mic className="size-5" />
+  1627→                      </Button>
+  1628→                    </TooltipTrigger>
+  1629→                    <TooltipContent>{t('msg.voiceRecord')}</TooltipContent>
+  1630→                  </Tooltip>
+  1631→                  <Button
+  1632→                    size="icon"
+  1633→                    className="shrink-0 rounded-xl"
+  1634→                    onClick={sendMessage}
+  1635→                    disabled={!inputValue.trim() && !pendingImage}
+  1636→                    aria-label={t('msg.send')}
+  1637→                  >
+  1638→                    <Send className="size-5" />
+  1639→                  </Button>
+  1640→                </div>
+  1641→              )}
+  1642→            </div>
+  1643→          </div>
+  1644→        </main>
+  1645→      </div>
+  1646→
+  1647→      {modalMode === 'addChannel' && (
+  1648→        <AddRoomModal onClose={() => setModalMode(null)} onCreate={createRoom} t={t} />
+  1649→      )}
+  1650→      {modalMode === 'createGroup' && (
+  1651→        <CreateGroupModal
+  1652→          onClose={() => setModalMode(null)}
+  1653→          onCreate={createGroup}
+  1654→          profiles={profiles}
+  1655→          currentUserId={user.id}
+  1656→          t={t}
+  1657→        />
+  1658→      )}
+  1659→      {modalMode === 'forward' && forwardMsg && (
+  1660→        <ForwardModal
+  1661→          onClose={() => { setModalMode(null); setForwardMsg(null); }}
+  1662→          onForward={forwardToRoom}
+  1663→          rooms={rooms}
+  1664→          currentRoomId={activeRoom?.id}
+  1665→          t={t}
+  1666→        />
+  1667→      )}
+  1668→      {modalMode === 'poll' && (
+  1669→        <PollModal onClose={() => setModalMode(null)} onCreate={createPoll} t={t} />
+  1670→      )}
+  1671→      {modalMode === 'anon' && (
+  1672→        <AnonModal onClose={() => setModalMode(null)} onAsk={askAnon} t={t} />
+  1673→      )}
+  1674→      {modalMode === 'profile' && (
+  1675→        <ProfileModal
+  1676→          onClose={() => setModalMode(null)}
+  1677→          onSave={updateProfile}
+  1678→          user={user}
+  1679→          t={t}
+  1680→        />
+  1681→      )}
+  1682→      {modalMode === 'info' && activeRoom && (
+  1683→        <InfoModal
+  1684→          onClose={() => setModalMode(null)}
+  1685→          room={activeRoom}
+  1686→          members={activeRoom.roomType === 'group'
+  1687→            ? Math.max(roomMemberships.filter(m => m.room_id === activeRoom.id).length, 1)
+  1688→            : profiles.length}
+  1689→          isAdmin={isAdmin}
+  1690→          onDelete={(activeRoom.roomType === 'channel' ? isAdmin : true) ? () => { deleteRoom(activeRoom.id); setModalMode(null); } : undefined}
+  1691→          t={t}
+  1692→        />
+  1693→      )}
+  1694→    </TooltipProvider>
+  1695→  );
+  1696→}
+  1697→
+  1698→// ============================================================================
+  1699→// Sidebar — чаты с превью последнего сообщения + люди
+  1700→// ============================================================================
+  1701→
+  1702→function Sidebar(props: {
+  1703→  rooms: Room[];
+  1704→  channels: Room[];
+  1705→  chats: Room[];
+  1706→  dms: Room[];
+  1707→  groups: Room[];
+  1708→  active: string;
+  1709→  searchQuery: string;
+  1710→  onSearchChange: (v: string) => void;
+  1711→  onSelect: (id: string) => void;
+  1712→  onAddChannel: () => void;
+  1713→  onAddGroup: () => void;
+  1714→  onDeleteRoom?: (id: string) => void;
+  1715→  isAdmin: boolean;
+  1716→  open: boolean;
+  1717→  onClose: () => void;
+  1718→  user: User;
+  1719→  onLogout: () => void;
+  1720→  onProfile: () => void;
+  1721→  onlineMembers: OnlineMember[];
+  1722→  isConnected: boolean;
+  1723→  activeTab: 'rooms' | 'members';
+  1724→  onTabChange: (tab: 'rooms' | 'members') => void;
+  1725→  onMemberClick: (userId: string) => void;
+  1726→  profiles: DbProfile[];
+  1727→  previews: Record<string, RoomPreview>;
+  1728→  seen: Record<string, number>;
+  1729→  t: (key: string) => string;
+  1730→}) {
+  1731→  const {
+  1732→    channels, chats, dms, groups, active, searchQuery, onSearchChange, onSelect, onAddChannel,
+  1733→    onAddGroup, onDeleteRoom, open, onClose, user, onLogout, onProfile,
+  1734→    onlineMembers, isConnected, activeTab, onTabChange, onMemberClick, profiles,
+  1735→    previews, seen, t,
+  1736→  } = props;
+  1737→
+  1738→  const onlineIds = new Set(onlineMembers.map(m => m.userId));
+  1739→  const isUnread = (r: Room) =>
+  1740→    !searchQuery && r.id !== active && !!previews[r.id] && previews[r.id].ts > (seen[r.id] ?? 0);
+  1741→
+  1742→  return (
+  1743→    <>
+  1744→      {open && (
+  1745→        <div className="md:hidden fixed inset-0 bg-black/50 z-40" onClick={onClose} aria-hidden />
+  1746→      )}
+  1747→      <aside
+  1748→        className={`glass border-r border-border flex flex-col w-[300px] shrink-0
+  1749→          fixed md:static inset-y-0 left-0 z-50 transition-transform
+  1750→          ${open ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}`}
+  1751→      >
+  1752→        {/* Brand + connection */}
+  1753→        <div className="px-4 pt-4 pb-3 flex items-center gap-3">
+  1754→          <div className="brand-mark size-10 rounded-2xl flex items-center justify-center font-extrabold text-lg shrink-0">
+  1755→            H
+  1756→          </div>
+  1757→          <div className="min-w-0 flex-1">
+  1758→            <div className="font-bold text-[15px] leading-tight tracking-tight">Holler</div>
+  1759→            <div className="text-[11px] text-muted-foreground truncate flex items-center gap-1.5">
+  1760→              {isConnected ? (
+  1761→                <><span className="size-1.5 rounded-full bg-emerald-500 pulse-ring inline-block shrink-0" /> {t('nav.online')}: {onlineMembers.length}</>
+  1762→              ) : (
+  1763→                <><WifiOff className="size-3 text-destructive connection-pulse shrink-0" /> {t('nav.noConnection')}</>
+  1764→              )}
+  1765→            </div>
+  1766→          </div>
+  1767→          <LanguageSwitcher />
+  1768→          <ThemeToggle />
+  1769→        </div>
+  1770→
+  1771→        {/* Segmented tabs */}
+  1772→        <div className="mx-3 mb-2 p-1 bg-muted/50 rounded-xl flex">
+  1773→          <button
+  1774→            type="button"
+  1775→            onClick={() => onTabChange('rooms')}
+  1776→            className={`flex-1 h-8 text-[13px] font-medium rounded-lg transition-all flex items-center justify-center gap-1.5
+  1777→              ${activeTab === 'rooms' ? 'bg-background shadow-sm text-foreground' : 'text-muted-foreground hover:text-foreground'}`}
+  1778→          >
+  1779→            <MessageSquare className="size-3.5" /> {t('nav.rooms')}
+  1780→          </button>
+  1781→          <button
+  1782→            type="button"
+  1783→            onClick={() => onTabChange('members')}
+  1784→            className={`flex-1 h-8 text-[13px] font-medium rounded-lg transition-all flex items-center justify-center gap-1.5
+  1785→              ${activeTab === 'members' ? 'bg-background shadow-sm text-foreground' : 'text-muted-foreground hover:text-foreground'}`}
+  1786→          >
+  1787→            <Users className="size-3.5" /> {t('nav.members')}
+  1788→            {onlineMembers.length > 0 && (
+  1789→              <span className="text-[10px] px-1.5 h-4 min-w-4 rounded-full bg-primary/15 text-primary tabular-nums flex items-center justify-center">
+  1790→                {onlineMembers.length}
+  1791→              </span>
+  1792→            )}
+  1793→          </button>
+  1794→        </div>
+  1795→
+  1796→        {/* Tab content */}
+  1797→        {activeTab === 'rooms' ? (
+  1798→          <>
+  1799→            {/* Search */}
+  1800→            <div className="px-3 pb-2">
+  1801→              <div className="relative">
+  1802→                <Search className="size-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+  1803→                <Input
+  1804→                  value={searchQuery}
+  1805→                  onChange={(e) => onSearchChange(e.target.value)}
+  1806→                  placeholder={t('nav.searchRooms')}
+  1807→                  className="pl-9 h-9 rounded-xl bg-muted/40 border-border/60"
+  1808→                />
+  1809→              </div>
+  1810→            </div>
+  1811→
+  1812→            {/* Rooms list — 4 sections */}
+  1813→            <div className="flex-1 overflow-y-auto scroll-thin px-2 pb-2">
+  1814→              <SectionHeader icon={<UserIcon className="size-3" />} label={t('nav.dms')} />
+  1815→              <div className="flex flex-col gap-0.5 mb-3">
+  1816→                {dms.length === 0 && (
+  1817→                  <div className="text-xs text-muted-foreground px-3 py-2">{t('room.startDM')}</div>
+  1818→                )}
+  1819→                {dms.map(c => (
+  1820→                  <RoomItem
+  1821→                    key={c.id}
+  1822→                    room={c}
+  1823→                    active={c.id === active}
+  1824→                    onClick={() => onSelect(c.id)}
+  1825→                    onDelete={onDeleteRoom}
+  1826→                    preview={previews[c.id]}
+  1827→                    unread={isUnread(c)}
+  1828→                    profileAvatar={profiles.find(p => p.id === c.dmOtherUserId)?.avatar ?? undefined}
+  1829→                    online={c.dmOtherUserId ? onlineIds.has(c.dmOtherUserId) : false}
+  1830→                    youLabel={t('list.you')}
+  1831→                    myName={user.name}
+  1832→                    t={t}
+  1833→                  />
+  1834→                ))}
+  1835→              </div>
+  1836→
+  1837→              <SectionHeader icon={<Users className="size-3" />} label={t('nav.groups')} onAdd={onAddGroup} addLabel={t('nav.createGroup')} />
+  1838→              <div className="flex flex-col gap-0.5 mb-3">
+  1839→                {groups.length === 0 && (
+  1840→                  <div className="text-xs text-muted-foreground px-3 py-2">{t('room.noGroups')}</div>
+  1841→                )}
+  1842→                {groups.map(c => (
+  1843→                  <RoomItem
+  1844→                    key={c.id}
+  1845→                    room={c}
+  1846→                    active={c.id === active}
+  1847→                    onClick={() => onSelect(c.id)}
+  1848→                    onDelete={onDeleteRoom}
+  1849→                    preview={previews[c.id]}
+  1850→                    unread={isUnread(c)}
+  1851→                    youLabel={t('list.you')}
+  1852→                    myName={user.name}
+  1853→                    t={t}
+  1854→                  />
+  1855→                ))}
+  1856→              </div>
+  1857→
+  1858→              <SectionHeader icon={<MessageSquare className="size-3" />} label={t('nav.chats')} onAdd={onAddChannel} addLabel={t('nav.createChat')} />
+  1859→              <div className="flex flex-col gap-0.5 mb-3">
+  1860→                {chats.length === 0 && (
+  1861→                  <div className="text-xs text-muted-foreground px-3 py-2">{t('room.noChats')}</div>
+  1862→                )}
+  1863→                {chats.map(c => (
+  1864→                  <RoomItem
+  1865→                    key={c.id}
+  1866→                    room={c}
+  1867→                    active={c.id === active}
+  1868→                    onClick={() => onSelect(c.id)}
+  1869→                    onDelete={onDeleteRoom}
+  1870→                    preview={previews[c.id]}
+  1871→                    unread={isUnread(c)}
+  1872→                    youLabel={t('list.you')}
+  1873→                    myName={user.name}
+  1874→                    t={t}
+  1875→                  />
+  1876→                ))}
+  1877→              </div>
+  1878→
+  1879→              <SectionHeader icon={<Megaphone className="size-3" />} label={t('nav.channels')} onAdd={onAddChannel} addLabel={t('nav.createChannel')} />
+  1880→              <div className="flex flex-col gap-0.5">
+  1881→                {channels.length === 0 && (
+  1882→                  <div className="text-xs text-muted-foreground px-3 py-2">{t('room.noChannels')}</div>
+  1883→                )}
+  1884→                {channels.map(c => (
+  1885→                  <RoomItem
+  1886→                    key={c.id}
+  1887→                    room={c}
+  1888→                    active={c.id === active}
+  1889→                    onClick={() => onSelect(c.id)}
+  1890→                    onDelete={onDeleteRoom}
+  1891→                    preview={previews[c.id]}
+  1892→                    unread={isUnread(c)}
+  1893→                    youLabel={t('list.you')}
+  1894→                    myName={user.name}
+  1895→                    t={t}
+  1896→                  />
+  1897→                ))}
+  1898→              </div>
+  1899→            </div>
+  1900→          </>
+  1901→        ) : (
+  1902→          <MembersList
+  1903→            members={onlineMembers}
+  1904→            currentUserId={user.id}
+  1905→            isConnected={isConnected}
+  1906→            onMemberClick={onMemberClick}
+  1907→            profiles={profiles}
+  1908→          />
+  1909→        )}
+  1910→
+  1911→        {/* User footer */}
+  1912→        <div className="p-3 border-t border-border flex items-center gap-1.5">
+  1913→          <button
+  1914→            onClick={onProfile}
+  1915→            className="flex-1 min-w-0 flex items-center gap-2.5 p-1.5 pr-2 rounded-xl hover:bg-muted/60 transition-colors text-left"
+  1916→            aria-label="Open profile"
+  1917→          >
+  1918→            <div className="relative shrink-0">
+  1919→              <Avatar user={user} size={34} />
+  1920→              <span className="absolute -bottom-0.5 -right-0.5 size-2.5 rounded-full bg-emerald-500 border-2 border-card" />
+  1921→            </div>
+  1922→            <div className="min-w-0 flex-1">
+  1923→              <div className="text-sm font-medium truncate">{user.name}</div>
+  1924→              <div className="text-[11px] text-muted-foreground truncate">
+  1925→                {user.role === 'admin' ? t('nav.adminRights') : t('nav.member')}
+  1926→              </div>
+  1927→            </div>
+  1928→            <Settings className="size-4 text-muted-foreground shrink-0" />
+  1929→          </button>
+  1930→          <Button
+  1931→            variant="ghost"
+  1932→            size="icon"
+  1933→            className="size-9 shrink-0 text-muted-foreground hover:text-destructive"
+  1934→            onClick={onLogout}
+  1935→            aria-label={t('nav.signOut')}
+  1936→          >
+  1937→            <LogOut className="size-4" />
+  1938→          </Button>
+  1939→        </div>
+  1940→      </aside>
+  1941→    </>
+  1942→  );
+  1943→}
+  1944→
+  1945→function SectionHeader(props: { icon: React.ReactNode; label: string; onAdd?: () => void; addLabel?: string }) {
+  1946→  return (
+  1947→    <div className="flex items-center justify-between px-2 pt-2 pb-1.5">
+  1948→      <span className="text-[11px] uppercase tracking-wider text-muted-foreground flex items-center gap-1.5 font-medium">
+  1949→        {props.icon} {props.label}
+  1950→      </span>
+  1951→      {props.onAdd && (
+  1952→        <Button variant="ghost" size="icon" className="size-6 rounded-md" onClick={props.onAdd} aria-label={props.addLabel}>
+  1953→          <Plus className="size-3.5" />
+  1954→        </Button>
+  1955→      )}
+  1956→    </div>
+  1957→  );
+  1958→}
+  1959→
+  1960→// ============================================================================
+  1961→// MembersList — список участников (онлайн + все зарегистрированные)
+  1962→// ============================================================================
+  1963→
+  1964→function MembersList(props: {
+  1965→  members: OnlineMember[];
+  1966→  currentUserId: string;
+  1967→  isConnected: boolean;
+  1968→  onMemberClick: (userId: string) => void;
+  1969→  profiles: DbProfile[];
+  1970→}) {
+  1971→  const { members, currentUserId, isConnected, onMemberClick, profiles } = props;
+  1972→  // Merge online members with all profiles (so offline users are also clickable for DM)
+  1973→  const onlineIds = new Set(members.map(m => m.userId));
+  1974→  const allUsers = [
+  1975→    ...members.map(m => ({ id: m.userId, name: m.name, role: m.role as 'member' | 'admin', avatar: m.avatar, online: true })),
+  1976→    ...profiles
+  1977→      .filter(p => !onlineIds.has(p.id))
+  1978→      .map(p => ({ id: p.id, name: p.name, role: p.role, avatar: p.avatar ?? undefined, online: false })),
+  1979→  ];
+  1980→  // Sort: admins first, then alphabetically; current user last
+  1981→  const sorted = [...allUsers].sort((a, b) => {
+  1982→    if (a.id === currentUserId) return 1;
+  1983→    if (b.id === currentUserId) return -1;
+  1984→    if (a.role === 'admin' && b.role !== 'admin') return -1;
+  1985→    if (a.role !== 'admin' && b.role === 'admin') return 1;
+  1986→    return a.name.localeCompare(b.name, 'en');
+  1987→  });
+  1988→
+  1989→  return (
+  1990→    <div className="flex-1 overflow-y-auto scroll-thin p-2">
+  1991→      <div className="px-2 py-2 flex items-center justify-between">
+  1992→        <span className="text-xs uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+  1993→          <Users className="size-3" /> People
+  1994→        </span>
+  1995→        <span className="text-xs text-muted-foreground tabular-nums">
+  1996→          {members.length} online · {allUsers.length} total
+  1997→        </span>
+  1998→      </div>
+  1999→
+  2000→      {!isConnected && (
+  2001→        <div className="px-3 py-2 text-center text-xs text-muted-foreground">
+  2002→          <WifiOff className="size-5 mx-auto mb-1 opacity-50" />
+  2003→          Connecting…
+  2004→        </div>
+  2005→      )}
+  2006→
+  2007→      {sorted.length === 0 && (
+  2008→        <div className="px-3 py-4 text-center text-xs text-muted-foreground">
+  2009→          <Users className="size-6 mx-auto mb-2 opacity-50" />
+  2010→          Nobody here yet
+  2011→        </div>
+  2012→      )}
+  2013→
+  2014→      {sorted.map(u => {
+  2015→        const isMe = u.id === currentUserId;
+  2016→        return (
+  2017→          <button
+  2018→            key={u.id}
+  2019→            type="button"
+  2020→            disabled={isMe}
+  2021→            onClick={() => !isMe && onMemberClick(u.id)}
+  2022→            className={`w-full flex items-center gap-2 px-2 py-2 rounded-lg text-sm transition-colors text-left
+  2023→              ${isMe ? 'opacity-60 cursor-default' : 'hover:bg-muted/40 cursor-pointer'}`}
+  2024→          >
+  2025→            <div className="relative shrink-0">
+  2026→              <Avatar user={{ id: u.id, name: u.name, avatar: u.avatar }} size={32} />
+  2027→              {u.online && (
+  2028→                <span
+  2029→                  className="absolute -bottom-0.5 -right-0.5 size-3 rounded-full bg-green-500 border-2 border-card pulse-ring"
+  2030→                  aria-label="online"
+  2031→                />
+  2032→              )}
+  2033→            </div>
+  2034→            <div className="min-w-0 flex-1">
+  2035→              <div className="font-medium truncate">
+  2036→                {u.name}
+  2037→                {isMe && <span className="text-xs text-muted-foreground ml-1.5">(you)</span>}
+  2038→              </div>
+  2039→              <div className="text-[11px] text-muted-foreground flex items-center gap-1">
+  2040→                {u.role === 'admin' && (
+  2041→                  <Badge variant="secondary" className="text-[9px] px-1 py-0 h-3">ADMIN</Badge>
+  2042→                )}
+  2043→                <span>{u.online ? 'online' : 'offline'}</span>
+  2044→              </div>
+  2045→            </div>
+  2046→            {!isMe && (
+  2047→              <MessageSquare className="size-3.5 text-muted-foreground shrink-0 opacity-50" />
+  2048→            )}
+  2049→          </button>
+  2050→        );
+  2051→      })}
+  2052→    </div>
+  2053→  );
+  2054→}
+  2055→
+  2056→function RoomItem(props: {
+  2057→  room: Room;
+  2058→  active: boolean;
+  2059→  onClick: () => void;
+
+[showing lines 1360-2059 of 3067; use offset=2060 with limit to continue reading]

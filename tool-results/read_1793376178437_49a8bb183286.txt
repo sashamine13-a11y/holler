@@ -1,0 +1,622 @@
+  1841→                )}
+  1842→                {groups.map(c => (
+  1843→                  <RoomItem
+  1844→                    key={c.id}
+  1845→                    room={c}
+  1846→                    active={c.id === active}
+  1847→                    onClick={() => onSelect(c.id)}
+  1848→                    onDelete={onDeleteRoom}
+  1849→                    preview={previews[c.id]}
+  1850→                    unread={isUnread(c)}
+  1851→                    youLabel={t('list.you')}
+  1852→                    myName={user.name}
+  1853→                    t={t}
+  1854→                  />
+  1855→                ))}
+  1856→              </div>
+  1857→
+  1858→              <SectionHeader icon={<MessageSquare className="size-3" />} label={t('nav.chats')} onAdd={onAddChannel} addLabel={t('nav.createChat')} />
+  1859→              <div className="flex flex-col gap-0.5 mb-3">
+  1860→                {chats.length === 0 && (
+  1861→                  <div className="text-xs text-muted-foreground px-3 py-2">{t('room.noChats')}</div>
+  1862→                )}
+  1863→                {chats.map(c => (
+  1864→                  <RoomItem
+  1865→                    key={c.id}
+  1866→                    room={c}
+  1867→                    active={c.id === active}
+  1868→                    onClick={() => onSelect(c.id)}
+  1869→                    onDelete={onDeleteRoom}
+  1870→                    preview={previews[c.id]}
+  1871→                    unread={isUnread(c)}
+  1872→                    youLabel={t('list.you')}
+  1873→                    myName={user.name}
+  1874→                    t={t}
+  1875→                  />
+  1876→                ))}
+  1877→              </div>
+  1878→
+  1879→              <SectionHeader icon={<Megaphone className="size-3" />} label={t('nav.channels')} onAdd={onAddChannel} addLabel={t('nav.createChannel')} />
+  1880→              <div className="flex flex-col gap-0.5">
+  1881→                {channels.length === 0 && (
+  1882→                  <div className="text-xs text-muted-foreground px-3 py-2">{t('room.noChannels')}</div>
+  1883→                )}
+  1884→                {channels.map(c => (
+  1885→                  <RoomItem
+  1886→                    key={c.id}
+  1887→                    room={c}
+  1888→                    active={c.id === active}
+  1889→                    onClick={() => onSelect(c.id)}
+  1890→                    onDelete={onDeleteRoom}
+  1891→                    preview={previews[c.id]}
+  1892→                    unread={isUnread(c)}
+  1893→                    youLabel={t('list.you')}
+  1894→                    myName={user.name}
+  1895→                    t={t}
+  1896→                  />
+  1897→                ))}
+  1898→              </div>
+  1899→            </div>
+  1900→          </>
+  1901→        ) : (
+  1902→          <MembersList
+  1903→            members={onlineMembers}
+  1904→            currentUserId={user.id}
+  1905→            isConnected={isConnected}
+  1906→            onMemberClick={onMemberClick}
+  1907→            profiles={profiles}
+  1908→          />
+  1909→        )}
+  1910→
+  1911→        {/* User footer */}
+  1912→        <div className="p-3 border-t border-border flex items-center gap-1.5">
+  1913→          <button
+  1914→            onClick={onProfile}
+  1915→            className="flex-1 min-w-0 flex items-center gap-2.5 p-1.5 pr-2 rounded-xl hover:bg-muted/60 transition-colors text-left"
+  1916→            aria-label="Open profile"
+  1917→          >
+  1918→            <div className="relative shrink-0">
+  1919→              <Avatar user={user} size={34} />
+  1920→              <span className="absolute -bottom-0.5 -right-0.5 size-2.5 rounded-full bg-emerald-500 border-2 border-card" />
+  1921→            </div>
+  1922→            <div className="min-w-0 flex-1">
+  1923→              <div className="text-sm font-medium truncate">{user.name}</div>
+  1924→              <div className="text-[11px] text-muted-foreground truncate">
+  1925→                {user.role === 'admin' ? t('nav.adminRights') : t('nav.member')}
+  1926→              </div>
+  1927→            </div>
+  1928→            <Settings className="size-4 text-muted-foreground shrink-0" />
+  1929→          </button>
+  1930→          <Button
+  1931→            variant="ghost"
+  1932→            size="icon"
+  1933→            className="size-9 shrink-0 text-muted-foreground hover:text-destructive"
+  1934→            onClick={onLogout}
+  1935→            aria-label={t('nav.signOut')}
+  1936→          >
+  1937→            <LogOut className="size-4" />
+  1938→          </Button>
+  1939→        </div>
+  1940→      </aside>
+  1941→    </>
+  1942→  );
+  1943→}
+  1944→
+  1945→function SectionHeader(props: { icon: React.ReactNode; label: string; onAdd?: () => void; addLabel?: string }) {
+  1946→  return (
+  1947→    <div className="flex items-center justify-between px-2 pt-2 pb-1.5">
+  1948→      <span className="text-[11px] uppercase tracking-wider text-muted-foreground flex items-center gap-1.5 font-medium">
+  1949→        {props.icon} {props.label}
+  1950→      </span>
+  1951→      {props.onAdd && (
+  1952→        <Button variant="ghost" size="icon" className="size-6 rounded-md" onClick={props.onAdd} aria-label={props.addLabel}>
+  1953→          <Plus className="size-3.5" />
+  1954→        </Button>
+  1955→      )}
+  1956→    </div>
+  1957→  );
+  1958→}
+  1959→
+  1960→// ============================================================================
+  1961→// MembersList — список участников (онлайн + все зарегистрированные)
+  1962→// ============================================================================
+  1963→
+  1964→function MembersList(props: {
+  1965→  members: OnlineMember[];
+  1966→  currentUserId: string;
+  1967→  isConnected: boolean;
+  1968→  onMemberClick: (userId: string) => void;
+  1969→  profiles: DbProfile[];
+  1970→}) {
+  1971→  const { members, currentUserId, isConnected, onMemberClick, profiles } = props;
+  1972→  // Merge online members with all profiles (so offline users are also clickable for DM)
+  1973→  const onlineIds = new Set(members.map(m => m.userId));
+  1974→  const allUsers = [
+  1975→    ...members.map(m => ({ id: m.userId, name: m.name, role: m.role as 'member' | 'admin', avatar: m.avatar, online: true })),
+  1976→    ...profiles
+  1977→      .filter(p => !onlineIds.has(p.id))
+  1978→      .map(p => ({ id: p.id, name: p.name, role: p.role, avatar: p.avatar ?? undefined, online: false })),
+  1979→  ];
+  1980→  // Sort: admins first, then alphabetically; current user last
+  1981→  const sorted = [...allUsers].sort((a, b) => {
+  1982→    if (a.id === currentUserId) return 1;
+  1983→    if (b.id === currentUserId) return -1;
+  1984→    if (a.role === 'admin' && b.role !== 'admin') return -1;
+  1985→    if (a.role !== 'admin' && b.role === 'admin') return 1;
+  1986→    return a.name.localeCompare(b.name, 'en');
+  1987→  });
+  1988→
+  1989→  return (
+  1990→    <div className="flex-1 overflow-y-auto scroll-thin p-2">
+  1991→      <div className="px-2 py-2 flex items-center justify-between">
+  1992→        <span className="text-xs uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+  1993→          <Users className="size-3" /> People
+  1994→        </span>
+  1995→        <span className="text-xs text-muted-foreground tabular-nums">
+  1996→          {members.length} online · {allUsers.length} total
+  1997→        </span>
+  1998→      </div>
+  1999→
+  2000→      {!isConnected && (
+  2001→        <div className="px-3 py-2 text-center text-xs text-muted-foreground">
+  2002→          <WifiOff className="size-5 mx-auto mb-1 opacity-50" />
+  2003→          Connecting…
+  2004→        </div>
+  2005→      )}
+  2006→
+  2007→      {sorted.length === 0 && (
+  2008→        <div className="px-3 py-4 text-center text-xs text-muted-foreground">
+  2009→          <Users className="size-6 mx-auto mb-2 opacity-50" />
+  2010→          Nobody here yet
+  2011→        </div>
+  2012→      )}
+  2013→
+  2014→      {sorted.map(u => {
+  2015→        const isMe = u.id === currentUserId;
+  2016→        return (
+  2017→          <button
+  2018→            key={u.id}
+  2019→            type="button"
+  2020→            disabled={isMe}
+  2021→            onClick={() => !isMe && onMemberClick(u.id)}
+  2022→            className={`w-full flex items-center gap-2 px-2 py-2 rounded-lg text-sm transition-colors text-left
+  2023→              ${isMe ? 'opacity-60 cursor-default' : 'hover:bg-muted/40 cursor-pointer'}`}
+  2024→          >
+  2025→            <div className="relative shrink-0">
+  2026→              <Avatar user={{ id: u.id, name: u.name, avatar: u.avatar }} size={32} />
+  2027→              {u.online && (
+  2028→                <span
+  2029→                  className="absolute -bottom-0.5 -right-0.5 size-3 rounded-full bg-green-500 border-2 border-card pulse-ring"
+  2030→                  aria-label="online"
+  2031→                />
+  2032→              )}
+  2033→            </div>
+  2034→            <div className="min-w-0 flex-1">
+  2035→              <div className="font-medium truncate">
+  2036→                {u.name}
+  2037→                {isMe && <span className="text-xs text-muted-foreground ml-1.5">(you)</span>}
+  2038→              </div>
+  2039→              <div className="text-[11px] text-muted-foreground flex items-center gap-1">
+  2040→                {u.role === 'admin' && (
+  2041→                  <Badge variant="secondary" className="text-[9px] px-1 py-0 h-3">ADMIN</Badge>
+  2042→                )}
+  2043→                <span>{u.online ? 'online' : 'offline'}</span>
+  2044→              </div>
+  2045→            </div>
+  2046→            {!isMe && (
+  2047→              <MessageSquare className="size-3.5 text-muted-foreground shrink-0 opacity-50" />
+  2048→            )}
+  2049→          </button>
+  2050→        );
+  2051→      })}
+  2052→    </div>
+  2053→  );
+  2054→}
+  2055→
+  2056→function RoomItem(props: {
+  2057→  room: Room;
+  2058→  active: boolean;
+  2059→  onClick: () => void;
+  2060→  onDelete?: (id: string) => void;
+  2061→  preview?: RoomPreview;
+  2062→  unread?: boolean;
+  2063→  profileAvatar?: string;
+  2064→  online?: boolean;
+  2065→  youLabel: string;
+  2066→  myName: string;
+  2067→  t: (key: string) => string;
+  2068→}) {
+  2069→  const { room, active, onClick, onDelete, preview, unread, profileAvatar, online, youLabel, myName, t } = props;
+  2070→  const Icon = room.roomType === 'group' ? Users
+  2071→    : room.kind === 'channel' ? Megaphone
+  2072→    : MessageSquare;
+  2073→  const mediaLabel = preview
+  2074→    ? preview.mediaType === 'image' ? t('media.photo')
+  2075→      : preview.mediaType === 'video' ? t('media.video')
+  2076→      : preview.mediaType === 'audio' ? t('media.audio')
+  2077→      : ''
+  2078→    : '';
+  2079→  const previewText = preview ? (preview.text || mediaLabel) : '';
+  2080→  const prefix = preview && !preview.isAnonymous && room.roomType !== 'dm'
+  2081→    ? `${preview.authorName === myName ? youLabel : preview.authorName}: `
+  2082→    : '';
+  2083→  return (
+  2084→    <div
+  2085→      className={`group room-item relative flex items-center gap-2.5 px-2 py-2 rounded-xl cursor-pointer text-sm
+  2086→        ${active ? 'bg-primary/15 text-foreground' : 'hover:bg-muted/50 text-muted-foreground hover:text-foreground'}`}
+  2087→      onClick={onClick}
+  2088→      role="button"
+  2089→      tabIndex={0}
+  2090→      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick(); } }}
+  2091→    >
+  2092→      {active && <span className="absolute left-0 top-1/2 -translate-y-1/2 h-6 w-1 rounded-r-full brand-mark" aria-hidden />}
+  2093→      {room.roomType === 'dm' ? (
+  2094→        <div className="relative shrink-0">
+  2095→          <Avatar user={{ id: room.dmOtherUserId ?? room.id, name: room.name, avatar: profileAvatar }} size={38} />
+  2096→          {online && <span className="absolute -bottom-0.5 -right-0.5 size-3 rounded-full bg-emerald-500 border-2 border-card" />}
+  2097→        </div>
+  2098→      ) : (
+  2099→        <div className="room-avatar size-[38px]" style={{ background: roomColor(room) }}>
+  2100→          <Icon className="size-[18px]" />
+  2101→        </div>
+  2102→      )}
+  2103→      <div className="flex-1 min-w-0">
+  2104→        <div className="flex items-center gap-2">
+  2105→          <div className="truncate font-semibold text-[13.5px] flex-1">{room.name}</div>
+  2106→          {preview && (
+  2107→            <span className="text-[10px] text-muted-foreground shrink-0 tabular-nums">{formatListTime(preview.ts)}</span>
+  2108→          )}
+  2109→        </div>
+  2110→        <div className="flex items-center gap-1.5">
+  2111→          <div className="text-[11.5px] truncate flex-1">
+  2112→            {preview ? (
+  2113→              <span className={unread ? 'text-foreground' : ''}>{prefix}{previewText}</span>
+  2114→            ) : (
+  2115→              room.about && room.roomType !== 'dm' ? room.about : ''
+  2116→            )}
+  2117→          </div>
+  2118→          {unread && <span className="brand-mark size-2 rounded-full shrink-0" aria-label="unread" />}
+  2119→        </div>
+  2120→      </div>
+  2121→      {onDelete && (
+  2122→        <Button
+  2123→          variant="ghost"
+  2124→          size="icon"
+  2125→          className="size-6 opacity-0 group-hover:opacity-100 shrink-0"
+  2126→          onClick={(e) => {
+  2127→            e.stopPropagation();
+  2128→            if (confirm(`Delete «${room.name}»?`)) onDelete(room.id);
+  2129→          }}
+  2130→          aria-label={t('delete')}
+  2131→        >
+  2132→          <Trash2 className="size-3" />
+  2133→        </Button>
+  2134→      )}
+  2135→    </div>
+  2136→  );
+  2137→}
+  2138→
+  2139→function Avatar(props: { user: { id: string; name: string; avatar?: string }; size?: number }) {
+  2140→  const { user, size = 36 } = props;
+  2141→  if (user.avatar && safeDataUrl(user.avatar, 100_000)) {
+  2142→    return (
+  2143→      // eslint-disable-next-line @next/next/no-img-element
+  2144→      <img
+  2145→        src={user.avatar}
+  2146→        alt={user.name}
+  2147→        width={size}
+  2148→        height={size}
+  2149→        className="rounded-full object-cover shrink-0"
+  2150→        style={{ width: size, height: size }}
+  2151→      />
+  2152→    );
+  2153→  }
+  2154→  return (
+  2155→    <div
+  2156→      className="rounded-full flex items-center justify-center font-bold text-white shrink-0"
+  2157→      style={{ width: size, height: size, background: avColor(user.id), fontSize: size * 0.4 }}
+  2158→    >
+  2159→      {initials(user.name)}
+  2160→    </div>
+  2161→  );
+  2162→}
+  2163→
+  2164→// ============================================================================
+  2165→// MessageItem — градиентные пузыри, hover-reply, аудио/видео, время в пузыре
+  2166→// ============================================================================
+  2167→
+  2168→function MessageItem(props: { msg: Message; currentUserId: string; showHeader: boolean; isPinned: boolean; isEditing: boolean; editText: string; onEditChange: (v: string) => void; onEditSave: () => void; onEditCancel: () => void; onReply?: (msg: Message) => void; onPin?: (msg: Message) => void; onUnpin?: () => void; onDelete?: (msg: Message) => void; onForward?: (msg: Message) => void; onCopy?: (text: string) => void; onEdit?: (msg: Message) => void; t: (key: string) => string }) {
+  2169→  const { msg, currentUserId, showHeader, isPinned, isEditing, editText, onEditChange, onEditSave, onEditCancel, onReply, onPin, onUnpin, onDelete, onForward, onCopy, onEdit, t } = props;
+  2170→  const mine = msg.authorId === currentUserId;
+  2171→  const isVideo = msg.mediaType === 'video';
+  2172→  const isAudio = msg.mediaType === 'audio';
+  2173→  const safeImage = safeDataUrl(msg.image);
+  2174→
+  2175→  // Action callbacks (used by the right-click / long-press context menu)
+  2176→  const onReplyCb = onReply ? () => onReply(msg) : undefined;
+  2177→  const onForwardCb = onForward ? () => onForward(msg) : undefined;
+  2178→  const onDeleteCb = onDelete ? () => onDelete(msg) : undefined;
+  2179→  const onEditCb = (onEdit && mine && msg.text) ? () => onEdit(msg) : undefined;
+  2180→  const onCopyCb = (onCopy && msg.text) ? () => onCopy(msg.text) : undefined;
+  2181→  const onPinCb = onPin ? () => onPin(msg) : undefined;
+  2182→
+  2183→  return (
+  2184→    <MessageContextMenu isOwn={mine} hasText={Boolean(msg.text)} isPinned={isPinned} onReply={onReplyCb} onPin={onPinCb} onUnpin={onUnpin} onDelete={onDeleteCb} onForward={onForwardCb} onCopy={onCopyCb} onEdit={onEditCb} t={t}>
+  2185→    <div className={`group/msg flex gap-2.5 ${mine ? 'flex-row-reverse' : ''} ${showHeader ? 'mt-3' : 'mt-0.5'}`}>
+  2186→      {/* Avatar column */}
+  2187→      <div className="w-8 shrink-0 flex justify-center pt-1">
+  2188→        {showHeader ? (
+  2189→          <div
+  2190→            className={`rounded-full flex items-center justify-center font-bold text-white size-8 avatar-pop ${mine ? 'brand-mark' : ''}`}
+  2191→            style={mine ? { fontSize: 12 } : { background: msg.anon ? '#7c5cd6' : avColor(msg.authorId), fontSize: 12 }}
+  2192→          >
+  2193→            {msg.anon ? <EyeOff className="size-3.5" /> : initials(msg.authorName)}
+  2194→          </div>
+  2195→        ) : null}
+  2196→      </div>
+  2197→      <div className={`max-w-[78%] sm:max-w-[68%] ${mine ? 'items-end' : 'items-start'} flex flex-col min-w-0`}>
+  2198→        {showHeader && (
+  2199→          <div className={`flex items-center gap-2 text-xs mb-1 px-1 ${mine ? 'flex-row-reverse' : ''}`}>
+  2200→            <span className={msg.anon ? 'text-violet-400 font-semibold' : 'font-semibold text-foreground'}>
+  2201→              {msg.anon ? t('msg.anonymous') : msg.authorName}
+  2202→            </span>
+  2203→            {!msg.anon && msg.role === 'admin' && (
+  2204→              <Badge variant="secondary" className="text-[9px] px-1 py-0 h-3.5 tracking-wide">ADMIN</Badge>
+  2205→            )}
+  2206→            {isPinned && (
+  2207→              <span className="inline-flex items-center gap-0.5 text-amber-500 text-[10px] font-medium">
+  2208→                <Pin className="size-2.5" /> {t('msg.pinned')}
+  2209→              </span>
+  2210→            )}
+  2211→          </div>
+  2212→        )}
+  2213→        <div className={`relative flex items-end gap-1.5 ${mine ? 'flex-row-reverse' : 'flex-row'}`}>
+  2214→          <div
+  2215→            className={`rounded-2xl px-3.5 py-2 text-sm leading-relaxed break-words
+  2216→              ${mine ? 'bubble-own ' + (showHeader ? 'rounded-tr-md' : '')
+  2217→                      : 'bubble-other ' + (showHeader ? 'rounded-tl-md' : '')}`}
+  2218→          >
+  2219→            {/* Reply quote */}
+  2220→            {msg.replyTo && (
+  2221→              <div className={`mb-1.5 px-2 py-1 rounded-md text-xs border-l-2 ${
+  2222→                mine ? 'bg-white/15 border-white/70' : 'bg-muted/60 border-primary'
+  2223→              }`}>
+  2224→                <div className={`font-medium text-[10px] uppercase tracking-wide ${mine ? 'text-white/85' : 'text-primary'}`}>
+  2225→                  {t('msg.reply')}
+  2226→                </div>
+  2227→                <div className={`truncate ${mine ? 'text-white/80' : 'text-muted-foreground'}`}>
+  2228→                  {msg.replySnippet ?? 'Original message'}
+  2229→                </div>
+  2230→              </div>
+  2231→            )}
+  2232→            {/* Forward quote */}
+  2233→            {msg.forwardedFrom && (
+  2234→              <div className={`mb-1.5 px-2 py-1 rounded-md text-xs border-l-2 ${
+  2235→                mine ? 'bg-white/15 border-amber-300/80' : 'bg-muted/60 border-amber-500'
+  2236→              }`}>
+  2237→                <div className={`font-medium text-[10px] uppercase tracking-wide flex items-center gap-1 ${mine ? 'text-white/85' : 'text-amber-500'}`}>
+  2238→                  <Forward className="size-2.5" /> {t('msg.forwardedFrom')}
+  2239→                </div>
+  2240→                <div className={`text-[10px] ${mine ? 'text-white/70' : 'text-muted-foreground'}`}>
+  2241→                  {msg.forwardedFrom}
+  2242→                </div>
+  2243→              </div>
+  2244→            )}
+  2245→            {isEditing ? (
+  2246→              <div className="flex flex-col gap-1.5 min-w-[220px]">
+  2247→                <textarea
+  2248→                  autoFocus
+  2249→                  value={editText}
+  2250→                  onChange={(e) => onEditChange(e.target.value)}
+  2251→                  onKeyDown={(e) => {
+  2252→                    if (e.key === 'Enter' && !e.shiftKey) {
+  2253→                      e.preventDefault();
+  2254→                      onEditSave();
+  2255→                    } else if (e.key === 'Escape') {
+  2256→                      e.preventDefault();
+  2257→                      onEditCancel();
+  2258→                    }
+  2259→                  }}
+  2260→                  className={`w-full resize-none min-h-[60px] max-h-40 rounded-lg p-2 text-sm outline-none
+  2261→                    ${mine
+  2262→                      ? 'bg-white/10 text-white placeholder:text-white/60 border border-white/30'
+  2263→                      : 'bg-background text-foreground border border-border'}`}
+  2264→                  maxLength={MAX_MSG_LEN}
+  2265→                />
+  2266→                <div className="flex items-center justify-end gap-1.5">
+  2267→                  <Button
+  2268→                    size="sm"
+  2269→                    variant="ghost"
+  2270→                    className="h-7 px-2 text-xs"
+  2271→                    onClick={onEditCancel}
+  2272→                  >
+  2273→                    {t('cancel')}
+  2274→                  </Button>
+  2275→                  <Button
+  2276→                    size="sm"
+  2277→                    className="h-7 px-3 text-xs"
+  2278→                    onClick={onEditSave}
+  2279→                    disabled={!editText.trim()}
+  2280→                  >
+  2281→                    {t('save')}
+  2282→                  </Button>
+  2283→                </div>
+  2284→              </div>
+  2285→            ) : (
+  2286→              <>
+  2287→                {msg.text && <p className="whitespace-pre-wrap">{msg.text}</p>}
+  2288→                {safeImage && isAudio ? (
+  2289→                  <audio src={safeImage} controls className="w-[230px] max-w-full mt-1.5" preload="metadata" />
+  2290→                ) : safeImage && isVideo ? (
+  2291→                  <video
+  2292→                    src={safeImage}
+  2293→                    controls
+  2294→                    className="rounded-xl max-w-full max-h-80 mt-1.5"
+  2295→                    preload="metadata"
+  2296→                  />
+  2297→                ) : safeImage ? (
+  2298→                  // eslint-disable-next-line @next/next/no-img-element
+  2299→                  <img
+  2300→                    src={safeImage}
+  2301→                    alt="attachment"
+  2302→                    className="rounded-xl max-w-full max-h-80 mt-1.5 cursor-pointer hover:opacity-90 transition-opacity"
+  2303→                    loading="lazy"
+  2304→                    onClick={() => window.open(safeImage, '_blank')}
+  2305→                  />
+  2306→                ) : null}
+  2307→                {/* Meta: time / edited — inside the bubble */}
+  2308→                <div className={`flex items-center justify-end gap-1.5 text-[10px] mt-0.5 ${mine ? 'text-white/65' : 'text-muted-foreground/80'}`}>
+  2309→                  {msg.editedAt && <span className="italic">{t('msg.edited')}</span>}
+  2310→                  <span className="tabular-nums">{formatTime(msg.ts)}</span>
+  2311→                </div>
+  2312→              </>
+  2313→            )}
+  2314→          </div>
+  2315→          {/* Quick reply on hover — no per-message ⋮ */}
+  2316→          {onReplyCb && !isEditing && (
+  2317→            <button
+  2318→              type="button"
+  2319→              onClick={onReplyCb}
+  2320→              aria-label={t('msg.reply')}
+  2321→              className="opacity-0 group-hover/msg:opacity-100 focus-visible:opacity-100 transition-opacity
+  2322→                size-7 rounded-full glass border border-border flex items-center justify-center
+  2323→                text-muted-foreground hover:text-primary shrink-0 mb-1"
+  2324→            >
+  2325→              <Reply className="size-3.5" />
+  2326→            </button>
+  2327→          )}
+  2328→        </div>
+  2329→      </div>
+  2330→    </div>
+  2331→    </MessageContextMenu>
+  2332→  );
+  2333→}
+  2334→
+  2335→// ============================================================================
+  2336→// PollCard — переработанный с прогресс-барами
+  2337→// ============================================================================
+  2338→
+  2339→function PollCard(props: { poll: Poll; currentUserId: string; onVote: (pollId: string, optIdx: number) => void; t: (key: string) => string }) {
+  2340→  const { poll, currentUserId, onVote, t } = props;
+  2341→  const voted = poll.options.some(o => o.votes.includes(currentUserId));
+  2342→  const myVote = poll.options.findIndex(o => o.votes.includes(currentUserId));
+  2343→  const totalVotes = poll.options.reduce((s, o) => s + o.votes.length, 0);
+  2344→
+  2345→  return (
+  2346→    <Card className="p-4 msg-in card-slide-in border-primary/25 shadow-sm">
+  2347→      <div className="flex items-center gap-2 mb-1">
+  2348→        <BarChart3 className="size-4 text-primary" />
+  2349→        <span className="text-xs uppercase tracking-wide text-muted-foreground font-medium">{t('poll.title')}</span>
+  2350→      </div>
+  2351→      <div className="font-semibold mb-3">{poll.q}</div>
+  2352→      <div className="flex flex-col gap-2">
+  2353→        {poll.options.map((o, i) => {
+  2354→          const c = o.votes.length;
+  2355→          const pct = totalVotes > 0 ? Math.round((c / totalVotes) * 100) : 0;
+  2356→          const isMyVote = myVote === i;
+  2357→          if (voted) {
+  2358→            return (
+  2359→              <div
+  2360→                key={i}
+  2361→                className={`relative rounded-xl overflow-hidden border p-2.5 transition-colors
+  2362→                  ${isMyVote ? 'border-primary bg-primary/5' : 'border-border'}`}
+  2363→              >
+  2364→                <div
+  2365→                  className={`absolute inset-y-0 left-0 transition-all bar-fill
+  2366→                    ${isMyVote ? 'bg-primary/20' : 'bg-muted/50'}`}
+  2367→                  style={{ width: `${pct}%` }}
+  2368→                />
+  2369→                <div className="relative flex items-center justify-between text-sm">
+  2370→                  <div className="flex items-center gap-2">
+  2371→                    {isMyVote ? (
+  2372→                      <CheckCircle2 className="size-4 text-primary" />
+  2373→                    ) : (
+  2374→                      <Circle className="size-4 text-muted-foreground" />
+  2375→                    )}
+  2376→                    <span className={isMyVote ? 'font-medium' : ''}>{o.t}</span>
+  2377→                  </div>
+  2378→                  <span className="text-muted-foreground tabular-nums text-xs">
+  2379→                    {pct}% · {c}
+  2380→                  </span>
+  2381→                </div>
+  2382→              </div>
+  2383→            );
+  2384→          }
+  2385→          return (
+  2386→            <button
+  2387→              key={i}
+  2388→              className="text-left text-sm border border-border rounded-xl px-3 py-2.5 hover:border-primary hover:bg-muted/40 transition-colors flex items-center gap-2"
+  2389→              onClick={() => onVote(poll.id, i)}
+  2390→            >
+  2391→              <Circle className="size-4 text-muted-foreground" />
+  2392→              <span className="flex-1">{o.t}</span>
+  2393→            </button>
+  2394→          );
+  2395→        })}
+  2396→      </div>
+  2397→      <div className="text-xs text-muted-foreground mt-3 flex items-center justify-between">
+  2398→        <span>{totalVotes} {t('poll.votes')}</span>
+  2399→        <span className="tabular-nums">{formatTime(poll.ts)}</span>
+  2400→      </div>
+  2401→    </Card>
+  2402→  );
+  2403→}
+  2404→
+  2405→// ============================================================================
+  2406→// AnonCard — более аккуратный
+  2407→// ============================================================================
+  2408→
+  2409→function AnonCard(props: { q: AnonQuestion; onAnswer: (id: string, text: string) => void; t: (key: string) => string }) {
+  2410→  const { q, onAnswer, t } = props;
+  2411→  const [text, setText] = useState('');
+  2412→  const [showAnswer, setShowAnswer] = useState(false);
+  2413→  return (
+  2414→    <Card className="p-4 msg-in card-slide-in border-violet-500/25 bg-violet-500/5">
+  2415→      <div className="flex items-center gap-2 mb-1">
+  2416→        <EyeOff className="size-4 text-violet-400" />
+  2417→        <span className="text-xs uppercase tracking-wide text-violet-400 font-medium">{t('anon.title')}</span>
+  2418→      </div>
+  2419→      <div className="font-medium mb-3">{q.q}</div>
+  2420→      {showAnswer ? (
+  2421→        <div className="space-y-2">
+  2422→          <Textarea
+  2423→            value={text}
+  2424→            onChange={(e) => setText(e.target.value)}
+  2425→            placeholder={t('anon.yourAnswer')}
+  2426→            rows={2}
+  2427→            maxLength={500}
+  2428→            className="resize-none"
+  2429→            autoFocus
+  2430→          />
+  2431→          <div className="flex gap-2">
+  2432→            <Button
+  2433→              size="sm"
+  2434→              onClick={() => {
+  2435→                onAnswer(q.id, text);
+  2436→                setText('');
+  2437→                setShowAnswer(false);
+  2438→              }}
+  2439→              disabled={!text.trim()}
+  2440→            >
+  2441→              <Send className="size-3 mr-1" /> {t('anon.reply')}
+  2442→            </Button>
+  2443→            <Button size="sm" variant="ghost" onClick={() => setShowAnswer(false)}>
+  2444→              {t('cancel')}
+  2445→            </Button>
+  2446→          </div>
+  2447→        </div>
+  2448→      ) : (
+  2449→        <Button size="sm" variant="outline" onClick={() => setShowAnswer(true)}>
+  2450→          <EyeOff className="size-3 mr-1" /> {t('anon.replyAnon')}
+  2451→        </Button>
+  2452→      )}
+  2453→    </Card>
+  2454→  );
+  2455→}
+  2456→
+  2457→// ============================================================================
+  2458→// ThemeToggle — переключатель светлой/тёмной темы
+  2459→// ============================================================================
+  2460→
+
+[showing lines 1841-2460 of 3067; use offset=2461 with limit to continue reading]
