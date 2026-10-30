@@ -37,7 +37,7 @@ export interface DbMessage {
   author_role: string | null;
   text: string | null;
   image: string | null;
-  media_type: 'image' | 'video' | null;
+  media_type: 'image' | 'video' | 'audio' | null;
   media_url: string | null;
   reply_to: string | null;
   forwarded_from: string | null;
@@ -118,6 +118,51 @@ export async function loadProfiles(): Promise<DbProfile[]> {
   return (data ?? []) as DbProfile[];
 }
 
+export interface RoomPreview {
+  roomId: string;
+  authorName: string;
+  text: string;
+  mediaType: 'image' | 'video' | 'audio' | null;
+  isAnonymous: boolean;
+  ts: number;
+}
+
+/**
+ * Load the latest message per room (for the chat-list previews).
+ * One lightweight query, newest first, then first occurrence per room.
+ */
+export async function loadRoomPreviews(): Promise<RoomPreview[]> {
+  const { data, error } = await supabase
+    .from('messages')
+    .select('room_id, author_name, text, media_type, is_anonymous, created_at')
+    .is('deleted_at', null)
+    .order('created_at', { ascending: false })
+    .limit(500);
+  if (error) {
+    console.warn('[api] loadRoomPreviews error:', error.message);
+    return [];
+  }
+  const seen = new Set<string>();
+  const out: RoomPreview[] = [];
+  for (const raw of (data ?? []) as Array<{
+    room_id: string; author_name: string; text: string | null;
+    media_type: 'image' | 'video' | 'audio' | null;
+    is_anonymous: boolean; created_at: string;
+  }>) {
+    if (seen.has(raw.room_id)) continue;
+    seen.add(raw.room_id);
+    out.push({
+      roomId: raw.room_id,
+      authorName: raw.author_name,
+      text: raw.text ?? '',
+      mediaType: raw.media_type,
+      isAnonymous: raw.is_anonymous,
+      ts: new Date(raw.created_at).getTime(),
+    });
+  }
+  return out;
+}
+
 export interface InsertMessageArgs {
   room_id: string;
   author_id: string;
@@ -125,7 +170,7 @@ export interface InsertMessageArgs {
   author_role: string | null;
   text: string | null;
   image?: string | null;
-  media_type?: 'image' | 'video' | null;
+  media_type?: 'image' | 'video' | 'audio' | null;
   media_url?: string | null;
   reply_to?: string | null;
   forwarded_from?: string | null;

@@ -8,6 +8,7 @@ import { Label } from '@/components/ui/label';
 import { toast } from 'sonner';
 import { AlertCircle, Mail, Lock, User as UserIcon, ArrowRight, KeyRound, HelpCircle } from 'lucide-react';
 import { useAuth } from '@/hooks/use-auth';
+import { useI18n } from '@/lib/i18n';
 import { ThemeToggle } from '@/components/theme-toggle';
 
 interface AuthScreenProps {
@@ -18,6 +19,7 @@ type Mode = 'signin' | 'signup' | 'forgot';
 
 export function AuthScreen({ onSuccess }: AuthScreenProps) {
   const { signIn, signUp, getSecretQuestion, resetPassword } = useAuth();
+  const { t } = useI18n();
   const [mode, setMode] = useState<Mode>('signin');
 
   // Common
@@ -148,20 +150,19 @@ export function AuthScreen({ onSuccess }: AuthScreenProps) {
   };
 
   return (
-    <div className="min-h-[100dvh] flex items-center justify-center p-4">
-      <Card className="w-full max-w-md p-6 glass">
+    <div className="min-h-[100dvh] flex items-center justify-center p-4 relative">
+      {/* Aurora glow behind the card */}
+      <div className="aurora-blob absolute size-[420px] rounded-full blur-3xl opacity-25 pointer-events-none" style={{ background: 'var(--grad-brand)' }} aria-hidden />
+      <Card className="w-full max-w-md p-6 glass relative">
         {/* Brand */}
-        <div className="flex items-center justify-between mb-5">
+        <div className="flex items-center justify-between mb-6">
           <div className="flex items-center gap-3">
-            <div
-              className="size-12 rounded-xl flex items-center justify-center font-extrabold text-xl shrink-0"
-              style={{ background: 'linear-gradient(135deg, #f5a623, #e94e6a)', color: '#0a0e1a' }}
-            >
+            <div className="brand-mark size-12 rounded-2xl flex items-center justify-center font-extrabold text-xl shrink-0">
               H
             </div>
             <div>
-              <h1 className="text-xl font-bold leading-tight">Holler</h1>
-              <p className="text-xs text-muted-foreground">Real-time messenger</p>
+              <h1 className="text-xl font-bold leading-tight tracking-tight">Holler</h1>
+              <p className="text-xs text-muted-foreground">{t('app.tagline')}</p>
             </div>
           </div>
           <ThemeToggle />
@@ -290,22 +291,22 @@ export function AuthScreen({ onSuccess }: AuthScreenProps) {
           // ====================================================================
           <>
             {/* Mode toggle */}
-            <div className="flex gap-1 p-1 bg-muted/40 rounded-lg mb-5">
+            <div className="flex gap-1 p-1 bg-muted/50 rounded-xl mb-5">
               <button
                 type="button"
                 onClick={() => { setMode('signin'); setError(''); }}
-                className={`flex-1 py-2 text-sm font-medium rounded-md transition-colors
+                className={`flex-1 py-2 text-sm font-medium rounded-lg transition-colors
                   ${mode === 'signin' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}
               >
-                Sign in
+                {t('auth.signin')}
               </button>
               <button
                 type="button"
                 onClick={() => { setMode('signup'); setError(''); }}
-                className={`flex-1 py-2 text-sm font-medium rounded-md transition-colors
+                className={`flex-1 py-2 text-sm font-medium rounded-lg transition-colors
                   ${mode === 'signup' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}
               >
-                Sign up
+                {t('auth.signup')}
               </button>
             </div>
 
@@ -313,12 +314,12 @@ export function AuthScreen({ onSuccess }: AuthScreenProps) {
             <div className="space-y-3">
               {mode === 'signup' && (
                 <div>
-                  <Label htmlFor="name">Name</Label>
+                  <Label htmlFor="name">{t('auth.name')}</Label>
                   <div className="relative">
                     <UserIcon className="size-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
                     <Input
                       id="name"
-                      placeholder="Your name"
+                      placeholder={t('auth.name')}
                       value={name}
                       onChange={(e) => setName(e.target.value)}
                       onKeyDown={(e) => e.key === 'Enter' && submit()}
@@ -329,7 +330,7 @@ export function AuthScreen({ onSuccess }: AuthScreenProps) {
                 </div>
               )}
               <div>
-                <Label htmlFor="email">Email</Label>
+                <Label htmlFor="email">{t('auth.email')}</Label>
                 <div className="relative">
                   <Mail className="size-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
                   <Input
@@ -345,7 +346,7 @@ export function AuthScreen({ onSuccess }: AuthScreenProps) {
                 </div>
               </div>
               <div>
-                <Label htmlFor="password">Password</Label>
+                <Label htmlFor="password">{t('auth.password')}</Label>
                 <div className="relative">
                   <Lock className="size-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
                   <Input
@@ -402,9 +403,9 @@ export function AuthScreen({ onSuccess }: AuthScreenProps) {
               )}
 
               <Button className="w-full" onClick={submit} disabled={loading}>
-                {loading ? 'Please wait…' : (
+                {loading ? '…' : (
                   <>
-                    {mode === 'signin' ? 'Sign in' : 'Create account'}
+                    {mode === 'signin' ? t('auth.signin') : t('auth.createAccount')}
                     <ArrowRight className="size-4 ml-1" />
                   </>
                 )}
@@ -418,23 +419,23 @@ export function AuthScreen({ onSuccess }: AuthScreenProps) {
                 onClick={() => { setMode('forgot'); setError(''); setForgotStep('email'); }}
                 className="text-muted-foreground hover:text-primary hover:underline"
               >
-                Forgot password?
+                {t('auth.forgot')}
               </button>
               <p className="text-muted-foreground">
-                {mode === 'signin' ? "Don't have an account? " : 'Already have an account? '}
+                {mode === 'signin' ? `${t('auth.noAccount')} ` : `${t('auth.haveAccount')} `}
                 <button
                   type="button"
                   onClick={() => { setMode(mode === 'signin' ? 'signup' : 'signin'); setError(''); }}
                   className="text-primary hover:underline font-medium"
                 >
-                  {mode === 'signin' ? 'Sign up' : 'Sign in'}
+                  {mode === 'signin' ? t('auth.signup') : t('auth.signin')}
                 </button>
               </p>
             </div>
 
             {/* Info note */}
-            <div className="mt-4 p-3 rounded-lg bg-muted/30 border border-border text-xs text-muted-foreground leading-relaxed">
-              Accounts are stored securely on Supabase. Real-time messages sync across all your devices.
+            <div className="mt-4 p-3 rounded-xl bg-muted/30 border border-border text-xs text-muted-foreground leading-relaxed">
+              {t('auth.accountInfo')}
             </div>
           </>
         )}
