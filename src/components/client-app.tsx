@@ -313,6 +313,8 @@ export default function ClientApp() {
   const [sidebarTab, setSidebarTab] = useState<'rooms' | 'members'>('rooms');
   const [replyTo, setReplyTo] = useState<Message | null>(null);
   const [forwardMsg, setForwardMsg] = useState<Message | null>(null);
+  const [editMsg, setEditMsg] = useState<Message | null>(null);
+  const [editText, setEditText] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
   const videoInputRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -822,6 +824,52 @@ export default function ClientApp() {
     }
   };
 
+  /** Begin inline editing of one of your own messages. */
+  const startEdit = (msg: Message) => {
+    if (msg.authorId !== user?.id) return;
+    if (msg.id.startsWith('temp_')) return;
+    setEditMsg(msg);
+    setEditText(msg.text ?? '');
+  };
+
+  const cancelEdit = () => {
+    setEditMsg(null);
+    setEditText('');
+  };
+
+  /** Save the edited text to Supabase (RLS restricts UPDATE to author). */
+  const saveEdit = async () => {
+    if (!editMsg || !user) return;
+    const cleanText = sanitizeText(editText, MAX_MSG_LEN);
+    if (!cleanText) {
+      toast.error('Message text cannot be empty');
+      return;
+    }
+    if (cleanText === editMsg.text) {
+      cancelEdit();
+      return;
+    }
+    const ok = await apiEditMessage(editMsg.id, cleanText);
+    if (!ok) {
+      toast.error('Failed to edit (only your own messages can be edited)');
+      return;
+    }
+    // Optimistically update the local message; realtime UPDATE will also
+    // fire and confirm the change (or correct it) from the server.
+    setRooms(prev => prev.map(r =>
+      r.id === (activeRoom?.id ?? '')
+        ? {
+            ...r,
+            messages: r.messages.map(m =>
+              m.id === editMsg.id ? { ...m, text: cleanText, editedAt: Date.now() } : m,
+            ),
+          }
+        : r,
+    ));
+    toast.success(t('msg.edited'));
+    cancelEdit();
+  };
+
   const handleAttach = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -1094,11 +1142,17 @@ export default function ClientApp() {
                         msg={it}
                         currentUserId={user.id}
                         showHeader={showHeader}
+                        isEditing={editMsg?.id === it.id}
+                        editText={editMsg?.id === it.id ? editText : (it.text ?? '')}
+                        onEditChange={setEditText}
+                        onEditSave={saveEdit}
+                        onEditCancel={cancelEdit}
                         onReply={(m) => setReplyTo(m)}
                         onForward={(m) => { setForwardMsg(m); setModalMode('forward'); }}
                         onPin={() => setModalMode('pin')}
                         onUnpin={activePinned ? unpin : undefined}
                         onDelete={(m) => deleteMessage(m)}
+                        onEdit={(m) => startEdit(m)}
                         onCopy={(text) => {
                           navigator.clipboard?.writeText(text);
                           toast(t('msg.copied'));
@@ -1716,15 +1770,15 @@ function Avatar(props: { user: { id: string; name: string; avatar?: string }; si
 // MessageItem — с группировкой по автору
 // ============================================================================
 
-function MessageItem(props: { msg: Message; currentUserId: string; showHeader: boolean; onReply?: (msg: Message) => void; onPin?: () => void; onUnpin?: () => void; onDelete?: (msg: Message) => void; onForward?: (msg: Message) => void; onCopy?: (text: string) => void; t: (key: string) => string }) {
-  const { msg, currentUserId, showHeader, onReply, onPin, onUnpin, onDelete, onForward, onCopy, t } = props;
+function MessageItem(props: { msg: Message; currentUserId: string; showHeader: boolean; isEditing: boolean; editText: string; onEditChange: (v: string) => void; onEditSave: () => void; onEditCancel: () => void; onReply?: (msg: Message) => void; onPin?: () => void; onUnpin?: () => void; onDelete?: (msg: Message) => void; onForward?: (msg: Message) => void; onCopy?: (text: string) => void; onEdit?: (msg: Message) => void; t: (key: string) => string }) {
+  const { msg, currentUserId, showHeader, isEditing, editText, onEditChange, onEditSave, onEditCancel, onReply, onPin, onUnpin, onDelete, onForward, onCopy, onEdit, t } = props;
   const mine = msg.authorId === currentUserId;
   // mediaType comes from the real media_type column (schema v2)
   const isVideo = msg.mediaType === 'video';
   const safeImage = safeDataUrl(msg.image);
 
   return (
-    <MessageContextMenu isOwn={mine} hasText={Boolean(msg.text)} onReply={onReply ? () => onReply(msg) : undefined} onPin={onPin} onUnpin={onUnpin} onDelete={onDelete ? () => onDelete(msg) : undefined} onForward={onForward ? () => onForward(msg) : undefined} onCopy={onCopy && msg.text ? () => onCopy(msg.text) : undefined} t={t}>
+    <MessageContextMenu isOwn={mine} hasText={Boolean(msg.text)} onReply={onReply ? () => onReply(msg) : undefined} onPin={onPin} onUnpin={onUnpin} onDelete={onDelete ? () => onDelete(msg) : undefined} onForward={onForward ? () => onForward(msg) : undefined} onCopy={onCopy && msg.text ? () => onCopy(msg.text) : undefined} onEdit={onEdit && mine && msg.text ? () => onEdit(msg) : undefined} t={t}>
     <div className={`flex gap-3 ${mine ? 'flex-row-reverse' : ''} ${showHeader ? 'mt-2' : 'mt-0.5'}`}>
       <div className="w-9 shrink-0 flex justify-center">
         {showHeader ? (
@@ -1749,7 +1803,7 @@ function MessageItem(props: { msg: Message; currentUserId: string; showHeader: b
               <Badge variant="secondary" className="text-[10px] px-1 py-0 h-3.5">ADMIN</Badge>
             )}
             <span className="text-muted-foreground">{formatTime(msg.ts)}</span>
-            {msg.editedAt && <span className="text-muted-foreground text-[10px] italic">(edited)</span>}
+            {msg.editedAt && <span className="text-muted-foreground text-[10px] italic">({t('msg.edited')})</span>}
           </div>
         )}
         <div
@@ -1783,24 +1837,68 @@ function MessageItem(props: { msg: Message; currentUserId: string; showHeader: b
               </div>
             </div>
           )}
-          {msg.text && <p className="whitespace-pre-wrap">{msg.text}</p>}
-          {safeImage && isVideo ? (
-            <video
-              src={safeImage}
-              controls
-              className="rounded-lg max-w-full max-h-80 mt-2"
-              preload="metadata"
-            />
-          ) : safeImage ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-              src={safeImage}
-              alt="attachment"
-              className="rounded-lg max-w-full max-h-80 mt-2 cursor-pointer hover:opacity-90 transition-opacity"
-              loading="lazy"
-              onClick={() => window.open(safeImage, '_blank')}
-            />
-          ) : null}
+          {isEditing ? (
+            <div className="flex flex-col gap-1.5 min-w-[220px]">
+              <textarea
+                autoFocus
+                value={editText}
+                onChange={(e) => onEditChange(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    onEditSave();
+                  } else if (e.key === 'Escape') {
+                    e.preventDefault();
+                    onEditCancel();
+                  }
+                }}
+                className={`w-full resize-none min-h-[60px] max-h-40 rounded-md p-2 text-sm outline-none
+                  ${mine
+                    ? 'bg-primary-foreground/10 text-primary-foreground placeholder:text-primary-foreground/60 border border-primary-foreground/30'
+                    : 'bg-background text-foreground border border-border'}`}
+                maxLength={MAX_MSG_LEN}
+              />
+              <div className="flex items-center justify-end gap-1.5">
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="h-7 px-2 text-xs"
+                  onClick={onEditCancel}
+                >
+                  {t('cancel')}
+                </Button>
+                <Button
+                  size="sm"
+                  className="h-7 px-3 text-xs"
+                  onClick={onEditSave}
+                  disabled={!editText.trim()}
+                >
+                  {t('save')}
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <>
+              {msg.text && <p className="whitespace-pre-wrap">{msg.text}</p>}
+              {safeImage && isVideo ? (
+                <video
+                  src={safeImage}
+                  controls
+                  className="rounded-lg max-w-full max-h-80 mt-2"
+                  preload="metadata"
+                />
+              ) : safeImage ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={safeImage}
+                  alt="attachment"
+                  className="rounded-lg max-w-full max-h-80 mt-2 cursor-pointer hover:opacity-90 transition-opacity"
+                  loading="lazy"
+                  onClick={() => window.open(safeImage, '_blank')}
+                />
+              ) : null}
+            </>
+          )}
         </div>
       </div>
     </div>

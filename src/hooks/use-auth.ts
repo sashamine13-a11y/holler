@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import type { User } from '@supabase/supabase-js';
+import type { User, Session, AuthChangeEvent } from '@supabase/supabase-js';
 import { supabase, isSupabaseConfigured } from '@/lib/supabase';
 
 export interface AuthUser {
@@ -30,18 +30,29 @@ export function useAuth() {
       return;
     }
 
-    // Получаем текущую сессию
-    supabase.auth.getSession().then(({ data }: { data: { session: { user: User } | null } }) => {
-      if (data.session?.user) {
-        loadProfile(data.session.user);
-      } else {
-        setLoading(false);
-      }
+    // Получаем текущую сессию (with timeout so loading doesn't hang on bad network)
+    let cancelled = false;
+    const sessionPromise = supabase.auth.getSession();
+    const timeoutPromise = new Promise<{ data: { session: null } }>((resolve) => {
+      setTimeout(() => resolve({ data: { session: null } }), 10000);
     });
+    Promise.race([sessionPromise, timeoutPromise])
+      .then((res: { data: { session: Session | null } }) => {
+        if (cancelled) return;
+        if (res.data.session?.user) {
+          loadProfile(res.data.session.user);
+        } else {
+          setLoading(false);
+        }
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setLoading(false);
+      });
 
     // Подписка на изменения сессии
     const { data: authListener } = supabase.auth.onAuthStateChange(
-      (_event: string, session: { user: User | null }) => {
+      (_event: AuthChangeEvent, session: Session | null) => {
         if (session?.user) {
           loadProfile(session.user);
         } else {
@@ -52,6 +63,7 @@ export function useAuth() {
     );
 
     return () => {
+      cancelled = true;
       authListener.subscription.unsubscribe();
     };
   }, []);
@@ -108,21 +120,22 @@ export function useAuth() {
       return { error: 'Invalid email format' };
     }
 
-    const { data, error } = await supabase.auth.signUp({
+    const result = await withTimeout(supabase.auth.signUp({
       email: cleanEmail,
       password,
       options: { data: { name: cleanName } },
-    });
+    }), 15000);
 
-    if (error) return { error: translateError(error.message) };
+    if (result.error) return { error: translateError(result.error.message) };
 
-    // Если email confirmation включён
-    if (data.user && !data.session) {
+    const data = result.data;
+    // Если email confirmation включён (auto_confirm trigger должен предотвращать это)
+    if (data?.user && !data.session) {
       return { error: 'Check your email to confirm registration' };
     }
 
     // Сохраняем секретный вопрос в profile (если указан)
-    if (data.user && secretQuestion && secretAnswer) {
+    if (data?.user && secretQuestion && secretAnswer) {
       const salt = generateSalt();
       const answerHash = await hashPassword(secretAnswer.trim().toLowerCase(), salt);
       await supabase.from('profiles').update({
@@ -141,8 +154,11 @@ export function useAuth() {
       return { error: 'Please fill in all fields' };
     }
 
-    const { error } = await supabase.auth.signInWithPassword({ email: cleanEmail, password });
-    if (error) return { error: translateError(error.message) };
+    const result = await withTimeout(
+      supabase.auth.signInWithPassword({ email: cleanEmail, password }),
+      15000,
+    );
+    if (result.error) return { error: translateError(result.error.message) };
 
     return {};
   };
@@ -209,20 +225,9 @@ export function useAuth() {
       return { error: 'Wrong answer to secret question' };
     }
 
-    // Обновляем пароль через Supabase admin API
-    // НО: клиентский SDK не может обновить пароль без текущего пароля
-    // Используем updateUser с новым паролем (требует авторизации)
-    // Альтернатива: используем supabase.auth.resetPasswordForEmail
-    // Но это шлёт email, а у нас секретный вопрос
-
-    // Workaround: обновим пароль напрямую через RPC функцию
-    // Создадим функцию в Supabase, которую может вызвать любой
-    // Но это небезопасно. Лучше — использовать admin API.
-
-    // Для демо: обновим пароль через signInWithPassword + updateUser
-    // Но мы не знаем текущий пароль...
-
-    // Лучший вариант: вернём success, и пользователь получит email для сброса
+    // Отправляем email для сброса пароля (Supabase не позволяет менять пароль
+    // неавторизованному клиенту напрямую; секретный вопрос только верифицирует
+    // личность, после чего шлём стандартную ссылку сброса).
     const { error: resetError } = await supabase.auth.resetPasswordForEmail(cleanEmail, {
       redirectTo: typeof window !== 'undefined' ? window.location.origin : undefined,
     });
@@ -288,5 +293,32 @@ function translateError(msg: string): string {
   if (m.includes('password should be at least')) return 'Password must be at least 6 characters';
   if (m.includes('unable to validate email')) return 'Invalid email format';
   if (m.includes('email not confirmed')) return 'Please confirm your email first';
+  if (m.includes('timeout') || m.includes('aborted') || m.includes('network')) {
+    return 'Network error — check your connection and try again';
+  }
   return msg;
+}
+
+interface TimedOut {
+  data: null;
+  error: { message: string };
+}
+
+/**
+ * Race a promise against a timeout. The promise is expected to resolve to a
+ * Supabase-shaped `{ data, error }` object. On timeout, returns
+ * `{ data: null, error: { message: 'timeout' } }`. Prevents auth calls from
+ * hanging indefinitely on bad networks (e.g. Supabase blocked from some regions).
+ */
+function withTimeout<T>(
+  promise: Promise<T>,
+  ms: number,
+): Promise<T | TimedOut> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<TimedOut>((resolve) => {
+    timer = setTimeout(() => resolve({ data: null, error: { message: 'timeout' } }), ms);
+  });
+  return Promise.race([promise, timeout]).finally(() => {
+    if (timer) clearTimeout(timer);
+  });
 }

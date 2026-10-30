@@ -7,7 +7,7 @@ import {
   ContextMenuSeparator,
   ContextMenuTrigger,
 } from '@/components/ui/context-menu';
-import { Reply, Pin, Trash2, Forward, Copy, EyeOff } from 'lucide-react';
+import { Reply, Pin, Trash2, Forward, Copy, EyeOff, Pencil } from 'lucide-react';
 
 interface MessageContextMenuProps {
   children: React.ReactNode;
@@ -19,6 +19,7 @@ interface MessageContextMenuProps {
   onDelete?: () => void;
   onForward?: () => void;
   onCopy?: () => void;
+  onEdit?: () => void;
   t: (key: string) => string;
 }
 
@@ -32,6 +33,7 @@ export function MessageContextMenu({
   onDelete,
   onForward,
   onCopy,
+  onEdit,
   t,
 }: MessageContextMenuProps) {
   return (
@@ -56,6 +58,12 @@ export function MessageContextMenu({
           <ContextMenuItem onClick={onForward}>
             <Forward className="size-4 mr-2" />
             {t('msg.forward')}
+          </ContextMenuItem>
+        )}
+        {isOwn && hasText && onEdit && (
+          <ContextMenuItem onClick={onEdit}>
+            <Pencil className="size-4 mr-2" />
+            {t('msg.edit')}
           </ContextMenuItem>
         )}
         <ContextMenuSeparator />

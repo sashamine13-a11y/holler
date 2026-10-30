@@ -65,15 +65,21 @@ export function AuthScreen({ onSuccess }: AuthScreenProps) {
     } else {
       result = await signUp(email.trim(), password, name.trim(), secretQuestion.trim(), secretAnswer.trim());
     }
-    setLoading(false);
 
     if (result.error) {
       setError(result.error);
+      setLoading(false);
       return;
     }
 
+    // Success — auth state listener in useAuth (in ClientApp) will fire
+    // and re-render with the new user, automatically swapping AuthScreen
+    // for the main app. We keep loading=true so the button stays in its
+    // "working" state during the brief transition.
     toast.success(mode === 'signin' ? 'Welcome back!' : 'Account created!');
-    setTimeout(() => window.location.reload(), 500);
+    // Safety net: if the auth state listener doesn't fire within 5s
+    // (e.g. network hiccup), reload the page to recover.
+    setTimeout(() => window.location.reload(), 5000);
   };
 
   const submitForgotEmail = async () => {
@@ -428,7 +434,7 @@ export function AuthScreen({ onSuccess }: AuthScreenProps) {
 
             {/* Info note */}
             <div className="mt-4 p-3 rounded-lg bg-muted/30 border border-border text-xs text-muted-foreground leading-relaxed">
-              Accounts are stored locally in this browser. Real-time messages sync across all your devices via Ably.
+              Accounts are stored securely on Supabase. Real-time messages sync across all your devices.
             </div>
           </>
         )}
