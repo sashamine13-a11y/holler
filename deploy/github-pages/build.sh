@@ -2,20 +2,25 @@
 # Сборка для GitHub Pages (через GitHub Actions).
 # GitHub Actions запускает этот скрипт и пушит ./out в ветку gh-pages.
 
-set -e
+# Don't use set -e so we can see all output even on failure.
+# Each step checks its own exit code.
 
 echo "=== Building for GitHub Pages ==="
 echo "Node: $(node --version 2>/dev/null || echo 'not found')"
 echo "Bun: $(bun --version 2>/dev/null || echo 'not found')"
+echo "Working dir: $(pwd)"
 
 # Шаг 1: Установка зависимостей
 echo ""
 echo "[1/5] Installing dependencies..."
-# Show full output so CI logs reveal install errors.
 if ! bun install 2>&1; then
   echo "⚠️  bun install failed, falling back to npm install..."
-  npm install 2>&1
+  if ! npm install 2>&1; then
+    echo "❌ All install methods failed"
+    exit 1
+  fi
 fi
+echo "✅ Dependencies installed"
 
 # Шаг 2: Применяем конфигурацию GitHub Pages
 echo ""
@@ -28,7 +33,10 @@ echo "nojekyll" > public/.nojekyll
 # Шаг 3: Патчим client-app.tsx под статический хостинг
 echo ""
 echo "[3/5] Patching client-app.tsx for static hosting..."
-node deploy/cloudflare-pages/patch-client.mjs
+if ! node deploy/cloudflare-pages/patch-client.mjs; then
+  echo "❌ Patch script failed"
+  exit 1
+fi
 
 # Шаг 4: Удаляем API routes (несовместимы со static export)
 echo ""
@@ -40,11 +48,16 @@ echo "  ✅ API routes removed"
 echo ""
 echo "[5/5] Building Next.js (static export)..."
 if [ -x "node_modules/.bin/next" ]; then
-  ./node_modules/.bin/next build
+  NEXT_BIN="./node_modules/.bin/next"
 elif command -v bunx >/dev/null 2>&1; then
-  bunx next build
+  NEXT_BIN="bunx next"
 else
-  npx next build
+  NEXT_BIN="npx next"
+fi
+echo "Using: $NEXT_BIN build"
+if ! $NEXT_BIN build 2>&1; then
+  echo "❌ Next.js build failed"
+  exit 1
 fi
 
 # Проверка результата
