@@ -11,7 +11,13 @@ echo "Bun: $(bun --version 2>/dev/null || echo 'not found')"
 # Шаг 1: Установка зависимостей
 echo ""
 echo "[1/5] Installing dependencies..."
-bun install 2>&1 | tail -3 || npm install 2>&1 | tail -3
+# Use pipefail so the exit code reflects bun install, not tail.
+set -o pipefail
+if ! bun install 2>&1 | tail -10; then
+  echo "⚠️  bun install failed, falling back to npm install..."
+  npm install 2>&1 | tail -10
+fi
+set +o pipefail
 
 # Шаг 2: Применяем конфигурацию GitHub Pages
 echo ""
