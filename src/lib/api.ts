@@ -295,17 +295,76 @@ export async function createGroup(
   return room as DbRoom;
 }
 
-/** Load room members with profile info (for group info display). */
-export async function loadRoomMembers(roomId: string): Promise<{ member: DbRoomMember; profile: DbProfile | null }[]> {
+export interface RoomMemberWithProfile extends DbRoomMember {
+  profile: DbProfile | null;
+}
+
+/** Load room members with profile info (for group member management). */
+export async function loadRoomMembers(roomId: string): Promise<RoomMemberWithProfile[]> {
   const { data, error } = await supabase
     .from('room_members')
     .select('*, profile:profiles(*)')
-    .eq('room_id', roomId);
+    .eq('room_id', roomId)
+    .order('joined_at', { ascending: true });
   if (error) {
     console.warn('[api] loadRoomMembers error:', error.message);
     return [];
   }
-  return (data ?? []) as unknown as { member: DbRoomMember; profile: DbProfile | null }[];
+  return (data ?? []) as unknown as RoomMemberWithProfile[];
+}
+
+// ============================================================================
+// Room settings (rename / about / category) — RLS allows authenticated UPDATE
+// ============================================================================
+
+export interface RoomPatch {
+  name?: string;
+  about?: string | null;
+  category?: string | null;
+}
+
+/** Persist room settings; returns the updated row or null on failure. */
+export async function updateRoom(roomId: string, patch: RoomPatch): Promise<DbRoom | null> {
+  const { data, error } = await supabase
+    .from('rooms')
+    .update(patch)
+    .eq('id', roomId)
+    .select()
+    .single();
+  if (error) {
+    console.warn('[api] updateRoom error:', error.message);
+    return null;
+  }
+  return data as DbRoom;
+}
+
+/**
+ * Add members to a group (RLS: room creator or group admin; self-join allowed).
+ */
+export async function addRoomMembers(roomId: string, userIds: string[]): Promise<boolean> {
+  if (userIds.length === 0) return true;
+  const { error } = await supabase
+    .from('room_members')
+    .insert(userIds.map(uid => ({ room_id: roomId, user_id: uid, role: 'member' })));
+  if (error) {
+    console.warn('[api] addRoomMembers error:', error.message);
+    return false;
+  }
+  return true;
+}
+
+/** Remove a member (RLS: self-leave or group admin). */
+export async function removeRoomMember(roomId: string, userId: string): Promise<boolean> {
+  const { error } = await supabase
+    .from('room_members')
+    .delete()
+    .eq('room_id', roomId)
+    .eq('user_id', userId);
+  if (error) {
+    console.warn('[api] removeRoomMember error:', error.message);
+    return false;
+  }
+  return true;
 }
 
 // ============================================================================

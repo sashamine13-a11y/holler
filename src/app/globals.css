@@ -218,6 +218,131 @@
 .scroll-thin::-webkit-scrollbar-thumb:hover { background: var(--muted-foreground); }
 
 /* ============================================================
+   АНТИ-ПЕРЕПОЛНЕНИЕ: длинные слова / ссылки / email переносим
+   ============================================================ */
+.word-safe {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  min-width: 0;
+}
+
+/* ============================================================
+   ПЕРЕКЛЮЧАТЕЛЬ ТЕМЫ — солнце/луна закрашиваются под тему
+   ============================================================ */
+
+/* View Transitions: круглый reveal при смене темы */
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation: none;
+  mix-blend-mode: normal;
+}
+
+.theme-switch {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px;
+  width: 62px;
+  height: 30px;
+  padding: 0 5px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: color-mix(in oklch, var(--muted) 55%, transparent);
+  cursor: pointer;
+  color: var(--muted-foreground);
+  overflow: hidden;
+}
+.theme-switch-lg {
+  width: 92px;
+  height: 40px;
+  padding: 0 9px;
+}
+.theme-switch:hover {
+  border-color: color-mix(in oklch, var(--primary) 45%, var(--border));
+}
+
+/* Ползунок-подсветка за активной иконкой */
+.theme-knob {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 50%;
+  height: calc(100% - 6px);
+  border-radius: 999px;
+  transform: translate(-100%, -50%);
+  transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1), background 0.4s ease, box-shadow 0.4s ease;
+}
+/* light → подсветка слева под солнцем (тёплое свечение) */
+.theme-switch[data-theme='light'] .theme-knob {
+  transform: translate(-100%, -50%);
+  background: color-mix(in oklch, #ffb545 22%, transparent);
+  box-shadow: 0 0 14px -2px color-mix(in oklch, #ffb545 55%, transparent);
+}
+/* dark → подсветка справа под луной (фирменное свечение) */
+.theme-switch[data-theme='dark'] .theme-knob {
+  transform: translate(0%, -50%);
+  background: color-mix(in oklch, var(--primary) 22%, transparent);
+  box-shadow: 0 0 14px -2px color-mix(in oklch, var(--primary) 55%, transparent);
+}
+
+/* Иконки: заливка «въезжает» у активной темы */
+.theme-icon {
+  position: relative;
+  z-index: 1;
+  flex-shrink: 0;
+  color: var(--muted-foreground);
+  transition: color 0.35s ease, transform 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.theme-icon.is-active {
+  color: var(--foreground);
+  transform: scale(1.08);
+}
+.theme-switch[data-theme='light'] .theme-icon:first-of-type {
+  color: #e58f1a;
+}
+.theme-switch[data-theme='dark'] .theme-icon:last-of-type {
+  color: var(--primary);
+}
+.theme-icon .fill-wipe {
+  transform-box: fill-box;
+  transform-origin: center;
+  transform: scale(0);
+  opacity: 0;
+  transition: transform 0.5s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.3s ease;
+}
+.theme-icon.is-active .fill-wipe {
+  transform: scale(1);
+  opacity: 1;
+}
+.theme-icon .rays {
+  transform-box: fill-box;
+  transform-origin: center;
+}
+.theme-icon.is-active .rays {
+  animation: rays-spin 9s linear infinite;
+}
+@keyframes rays-spin {
+  to { transform: rotate(360deg); }
+}
+.theme-icon .stars {
+  opacity: 0;
+  transition: opacity 0.45s ease 0.12s;
+}
+.theme-icon.is-active .stars {
+  opacity: 1;
+}
+.theme-icon .star {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: star-twinkle 2.2s ease-in-out infinite;
+}
+@keyframes star-twinkle {
+  0%, 100% { opacity: 0.35; transform: scale(0.8); }
+  50% { opacity: 1; transform: scale(1.2); }
+}
+
+/* ============================================================
    АНИМАЦИИ
    ============================================================ */
 
