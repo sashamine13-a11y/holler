@@ -11,10 +11,11 @@ import type { RoomPreview } from '@/lib/api';
 import type { OnlineMember } from '@/hooks/use-socket';
 import { roomColor, formatListTime, type Room, type User } from '@/lib/chat-types';
 import {
-  ChevronDown, LogOut, Megaphone, MessageSquare, Menu as MenuIcon,
-  Plus, Search, Settings, Users, User as UserIcon, WifiOff,
+  BellOff, ChevronDown, LogOut, Megaphone, MessageSquare, Menu as MenuIcon,
+  Pin, Plus, Search, Settings, Users, User as UserIcon, WifiOff,
 } from 'lucide-react';
 import { useI18n } from '@/lib/i18n';
+import { useLocalSettings } from '@/lib/local-settings';
 
 // ============================================================================
 // Sidebar — filter chips (All / Channels / Groups / DMs), collapsible
@@ -50,6 +51,7 @@ export function Sidebar(props: {
     onMemberClick, profiles, previews, seen, mobileOpen, onClose,
   } = props;
   const { t, dateLocale } = useI18n();
+  const { roomPrefs } = useLocalSettings();
 
   const [filter, setFilter] = useState<RoomFilter>('all');
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
@@ -59,10 +61,20 @@ export function Sidebar(props: {
 
   const matchesSearch = (r: Room) => !q || r.name.toLowerCase().includes(q);
 
-  const channels = rooms.filter(r => r.kind === 'channel' && r.roomType === 'channel' && matchesSearch(r));
-  const chats = rooms.filter(r => r.kind === 'chat' && r.roomType === 'channel' && matchesSearch(r));
-  const groups = rooms.filter(r => r.roomType === 'group' && matchesSearch(r));
-  const dms = rooms.filter(r => r.roomType === 'dm' && matchesSearch(r));
+  const sortByPinned = (list: Room[]): Room[] => {
+    // Pinned-to-top rooms first (stable within group), then original order.
+    const pinned: Room[] = [];
+    const rest: Room[] = [];
+    for (const r of list) {
+      if (roomPrefs(r.id)?.pinnedTop) pinned.push(r); else rest.push(r);
+    }
+    return [...pinned, ...rest];
+  };
+
+  const channels = sortByPinned(rooms.filter(r => r.kind === 'channel' && r.roomType === 'channel' && matchesSearch(r)));
+  const chats = sortByPinned(rooms.filter(r => r.kind === 'chat' && r.roomType === 'channel' && matchesSearch(r)));
+  const groups = sortByPinned(rooms.filter(r => r.roomType === 'group' && matchesSearch(r)));
+  const dms = sortByPinned(rooms.filter(r => r.roomType === 'dm' && matchesSearch(r)));
 
   const counts: Record<RoomFilter, number> = {
     all: channels.length + chats.length + groups.length + dms.length,
@@ -364,6 +376,10 @@ function RoomItem(props: {
 }) {
   const { room, active, onClick, preview, unread, profileAvatar, online, myName, youLabel, dateLocale } = props;
   const { t } = useI18n();
+  const { roomPrefs } = useLocalSettings();
+  const localPrefs = roomPrefs(room.id);
+  const isPinned = !!localPrefs.pinnedTop;
+  const isMuted = !!localPrefs.muted;
   const Icon = room.roomType === 'group' ? Users
     : room.kind === 'channel' ? Megaphone
     : MessageSquare;
@@ -400,7 +416,11 @@ function RoomItem(props: {
       )}
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2">
-          <div className="truncate font-semibold text-[13.5px] flex-1">{room.name}</div>
+          <div className="truncate font-semibold text-[13.5px] flex-1 flex items-center gap-1">
+            <span className="truncate">{room.name}</span>
+            {isPinned && <Pin className="size-3 text-primary shrink-0" aria-label="pinned" />}
+          </div>
+          {isMuted && <BellOff className="size-3 text-muted-foreground shrink-0" aria-label="muted" />}
           {preview && (
             <span className="text-[10px] text-muted-foreground shrink-0 tabular-nums">{formatListTime(preview.ts, dateLocale)}</span>
           )}

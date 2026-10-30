@@ -7,6 +7,7 @@ import { Badge } from '@/components/ui/badge';
 import { Textarea } from '@/components/ui/textarea';
 import { MessageContextMenu } from '@/components/message-context-menu';
 import { avColor, initials, formatTime, safeDataUrl, MAX_MSG_LEN, type Message, type Poll, type AnonQuestion } from '@/lib/chat-types';
+import { useLocalSettings, formatTimePref } from '@/lib/local-settings';
 import {
   BarChart3, CheckCircle2, Circle, EyeOff, Forward, Pin, Reply, Send,
 } from 'lucide-react';
@@ -39,6 +40,7 @@ export function MessageItem(props: {
     onEditChange, onEditSave, onEditCancel,
     onReply, onPin, onUnpin, onDelete, onForward, onCopy, onEdit, t,
   } = props;
+  const { settings } = useLocalSettings();
   const mine = msg.authorId === currentUserId;
   const isVideo = msg.mediaType === 'video';
   const isAudio = msg.mediaType === 'audio';
@@ -167,7 +169,7 @@ export function MessageItem(props: {
                   {/* Meta: time / edited — inside the bubble */}
                   <div className={`flex items-center justify-end gap-1.5 text-[10px] mt-0.5 ${mine ? 'text-white/65' : 'text-muted-foreground/80'}`}>
                     {msg.editedAt && <span className="italic">{t('msg.edited')}</span>}
-                    <span className="tabular-nums">{formatTime(msg.ts)}</span>
+                    <span className="tabular-nums">{formatTimePref(msg.ts, settings)}</span>
                   </div>
                 </>
               )}
@@ -198,6 +200,7 @@ export function MessageItem(props: {
 
 export function PollCard(props: { poll: Poll; currentUserId: string; onVote: (pollId: string, optIdx: number) => void; t: (key: string) => string }) {
   const { poll, currentUserId, onVote, t } = props;
+  const { settings } = useLocalSettings();
   const voted = poll.options.some(o => o.votes.includes(currentUserId));
   const myVote = poll.options.findIndex(o => o.votes.includes(currentUserId));
   const totalVotes = poll.options.reduce((s, o) => s + o.votes.length, 0);
@@ -256,7 +259,7 @@ export function PollCard(props: { poll: Poll; currentUserId: string; onVote: (po
       </div>
       <div className="text-xs text-muted-foreground mt-3 flex items-center justify-between">
         <span>{totalVotes} {t('poll.votes')}</span>
-        <span className="tabular-nums">{formatTime(poll.ts)}</span>
+        <span className="tabular-nums">{formatTimePref(poll.ts, settings)}</span>
       </div>
     </Card>
   );

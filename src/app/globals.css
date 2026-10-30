@@ -503,3 +503,81 @@ button, input, textarea, [role="button"] {
     transition-duration: 0.01ms !important;
   }
 }
+
+/* ============================================================
+   ПЛОТНОСТЬ / DENSITY — compact mode тighter paddings
+   ============================================================ */
+body.density-compact {
+  --density-pad: 0.5rem;
+}
+body:not(.density-compact) {
+  --density-pad: 0.75rem;
+}
+
+/* ============================================================
+   ОБОИ ЧАТА — chat wallpaper (applied via inline style on main)
+   ============================================================ */
+.chat-wallpaper {
+  background-image: var(--chat-wallpaper, none);
+  background-attachment: fixed;
+}
+
+/* Toggle row helper */
+.toggle-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.5rem 0.75rem;
+  border-radius: 0.75rem;
+  border: 1px solid var(--border);
+  background: color-mix(in oklch, var(--muted) 30%, transparent);
+  transition: background 0.18s ease, border-color 0.18s ease;
+}
+.toggle-row:hover {
+  border-color: color-mix(in oklch, var(--primary) 35%, var(--border));
+}
+.toggle-row > .label {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.toggle-row > .label > .title {
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: var(--foreground);
+}
+.toggle-row > .label > .hint {
+  font-size: 0.6875rem;
+  color: var(--muted-foreground);
+  margin-top: 1px;
+}
+
+/* Pill-style option selector */
+.opt-pill {
+  display: inline-flex;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: color-mix(in oklch, var(--muted) 30%, transparent);
+  padding: 2px;
+  gap: 2px;
+}
+.opt-pill button {
+  border: none;
+  background: transparent;
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+  padding: 4px 10px;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: all 0.18s ease;
+  white-space: nowrap;
+}
+.opt-pill button.on {
+  background: var(--primary);
+  color: var(--primary-foreground);
+  font-weight: 500;
+}
+.opt-pill button:hover:not(.on) {
+  color: var(--foreground);
+}

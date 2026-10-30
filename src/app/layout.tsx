@@ -4,6 +4,7 @@ import "./globals.css";
 import { Toaster } from "@/components/ui/sonner";
 import { ThemeProvider } from "@/components/theme-provider";
 import { I18nProvider } from "@/lib/i18n";
+import { LocalSettingsProvider } from "@/lib/local-settings";
 
 const inter = Inter({
   variable: "--font-sans",
@@ -58,8 +59,10 @@ export default function RootLayout({
           disableTransitionOnChange
         >
           <I18nProvider>
-            {children}
-            <Toaster />
+            <LocalSettingsProvider>
+              {children}
+              <Toaster />
+            </LocalSettingsProvider>
           </I18nProvider>
         </ThemeProvider>
       </body>

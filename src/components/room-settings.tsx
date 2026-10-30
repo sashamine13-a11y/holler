@@ -5,13 +5,15 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
+import { Switch } from '@/components/ui/switch';
 import { Avatar } from '@/components/avatar';
 import { ModalShell } from '@/components/modals';
 import { loadRoomMembers, type DbProfile, type RoomMemberWithProfile } from '@/lib/api';
+import { useLocalSettings } from '@/lib/local-settings';
 import { CATEGORIES, MAX_ABOUT_LEN, type Room } from '@/lib/chat-types';
 import {
-  Check, Crown, DoorOpen, Megaphone, MessageSquare, Minus, Search,
-  Shield, Trash2, UserPlus, Users, User as UserIcon,
+  BellOff, Check, Crown, DoorOpen, Hourglass, Megaphone, MessageSquare, Minus, Pin,
+  PinOff, Search, Shield, Trash2, UserPlus, Users, User as UserIcon,
 } from 'lucide-react';
 
 // ============================================================================
@@ -52,6 +54,12 @@ export function RoomSettingsModal(props: {
     : isGroup ? canManageMembers
     : room.kind === 'channel' ? globalAdmin
     : true;
+
+  // ---- local per-room prefs (pin to top / mute) ----
+  const { roomPrefs, setRoomPref } = useLocalSettings();
+  const localPrefs = roomPrefs(room.id);
+  const isPinnedTop = !!localPrefs.pinnedTop;
+  const isMuted = !!localPrefs.muted;
 
   // ---- editable fields ----
   const [name, setName] = useState(room.name);
@@ -367,6 +375,66 @@ export function RoomSettingsModal(props: {
             >
               <DoorOpen className="size-4 mr-1.5" /> {t('room.leaveGroup')}
             </Button>
+          </div>
+        )}
+
+        {/* Per-room local preferences — pin to top + mute */}
+        <div className="border-t border-border pt-4 space-y-2">
+          <Label className="flex items-center gap-1.5 text-[11px] uppercase tracking-wider text-muted-foreground font-semibold">
+            <BellOff className="size-3" /> {t('room.localPrefs')}
+          </Label>
+
+          <div className="toggle-row">
+            <div className="label">
+              <span className="title flex items-center gap-1.5">
+                {isPinnedTop ? <Pin className="size-3.5 text-primary" /> : <PinOff className="size-3.5" />}
+                {t('room.pinToTop')}
+              </span>
+              <span className="hint">{t('room.pinToTopHint')}</span>
+            </div>
+            <Switch
+              checked={isPinnedTop}
+              onCheckedChange={v => setRoomPref(room.id, { pinnedTop: v })}
+            />
+          </div>
+
+          <div className="toggle-row">
+            <div className="label">
+              <span className="title flex items-center gap-1.5">
+                {isMuted ? <BellOff className="size-3.5 text-muted-foreground" /> : <MessageSquare className="size-3.5" />}
+                {t('room.mute')}
+              </span>
+              <span className="hint">{t('room.muteHint')}</span>
+            </div>
+            <Switch
+              checked={isMuted}
+              onCheckedChange={v => setRoomPref(room.id, { muted: v })}
+            />
+          </div>
+        </div>
+
+        {/* Admin info: slow mode + welcome (display only, mock behavior marker) */}
+        {canEditFields && !isDm && (
+          <div className="border-t border-border pt-4 space-y-2">
+            <Label className="flex items-center gap-1.5 text-[11px] uppercase tracking-wider text-muted-foreground font-semibold">
+              <Hourglass className="size-3" /> {t('room.adminTools')}
+            </Label>
+            <div className="rounded-xl border border-border bg-muted/30 p-3 space-y-2">
+              <div className="flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="text-sm font-medium">{t('room.slowMode')}</div>
+                  <p className="text-xs text-muted-foreground">{t('room.slowModeHint')}</p>
+                </div>
+                <Badge variant="outline" className="shrink-0">10s</Badge>
+              </div>
+              <div className="flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="text-sm font-medium">{t('room.welcomeMsg')}</div>
+                  <p className="text-xs text-muted-foreground">{t('room.welcomeMsgHint')}</p>
+                </div>
+                <Switch defaultChecked={false} />
+              </div>
+            </div>
           </div>
         )}
 

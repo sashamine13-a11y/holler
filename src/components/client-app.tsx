@@ -26,6 +26,7 @@ import {
 import { RoomSettingsModal } from '@/components/room-settings';
 import { SettingsModal } from '@/components/settings-modal';
 import { useI18n } from '@/lib/i18n';
+import { useLocalSettings, formatTimePref, WALLPAPER_PRESETS } from '@/lib/local-settings';
 import {
   type DbRoom, type DbMessage, type DbProfile, type DbRoomMember,
   loadRooms, loadMessages, loadProfiles, loadRoom,
@@ -176,6 +177,9 @@ export default function ClientApp() {
   // i18n — global context (language switch works everywhere instantly)
   const { t, dateLocale } = useI18n();
 
+  // Local UI / behavior preferences (accent, font, sound, privacy, per-room)
+  const { settings, playSound, roomPrefs } = useLocalSettings();
+
   // Auth via Supabase
   const { user: authUser, loading: authLoading } = useAuth();
 
@@ -316,6 +320,19 @@ export default function ClientApp() {
           r.id === active ? { ...r, messages: [...r.messages, appMsg] } : r,
         ));
         pushPreview(active, appMsg);
+        // Sound on receive — only if this room is not muted
+        const rp = roomPrefs(active);
+        if (!rp?.muted) playSound('receive');
+        // Optional desktop notification
+        if (settings.desktopNotifications && typeof Notification !== 'undefined' && Notification.permission === 'granted' && !rp?.muted) {
+          try {
+            const n = new Notification(`${appMsg.authorName}${appMsg.anon ? ' · anon' : ''}`, {
+              body: appMsg.text || (appMsg.image ? '[attachment]' : ''),
+              silent: true,
+            });
+            setTimeout(() => n.close(), 4000);
+          } catch { /* ignore */ }
+        }
         if (fromBottomRef.current > 400) setNewBelow(n => n + 1);
       },
       (dbMsg) => {
@@ -334,7 +351,7 @@ export default function ClientApp() {
       setPinned(pin ? { room: active, messageId: pin.messageId ?? undefined, text: pin.text, ts: pin.ts } : null);
     });
     return () => { cancelled = true; unsub(); unsubPin(); };
-  }, [active, user]);
+  }, [active, user, roomPrefs, playSound, settings.desktopNotifications]);
 
   // Ably poll events
   useEffect(() => {
@@ -504,6 +521,7 @@ export default function ClientApp() {
       r.id === activeRoom.id ? { ...r, messages: [...r.messages, optimisticMsg] } : r,
     ));
     pushPreview(activeRoom.id, optimisticMsg);
+    playSound('send');
 
     const inserted = await insertMessage({
       room_id: activeRoom.id,
@@ -1101,7 +1119,10 @@ export default function ClientApp() {
           onClose={() => setSidebarOpen(false)}
         />
 
-        <main className="flex-1 flex flex-col min-w-0 relative">
+        <main
+          className="flex-1 flex flex-col min-w-0 relative chat-wallpaper"
+          style={settings.wallpaper !== 'none' ? ({ '--chat-wallpaper': WALLPAPER_PRESETS[settings.wallpaper].css } as React.CSSProperties) : undefined}
+        >
           {/* Top bar */}
           <header className="glass border-b border-border flex items-center gap-2.5 px-3 sm:px-5 h-16 shrink-0">
             <Button variant="ghost" size="icon" className="md:hidden" onClick={() => setSidebarOpen(true)} aria-label="Menu">
@@ -1416,7 +1437,12 @@ export default function ClientApp() {
                     value={inputValue}
                     onChange={(e) => handleInputChange(e.target.value)}
                     onKeyDown={(e) => {
-                      if (e.key === 'Enter' && !e.shiftKey) {
+                      // sendOnEnter=true (default): Enter sends, Shift+Enter newline.
+                      // sendOnEnter=false: Ctrl/Cmd+Enter sends, Enter = newline.
+                      const wantSend = settings.sendOnEnter
+                        ? (e.key === 'Enter' && !e.shiftKey)
+                        : (e.key === 'Enter' && (e.ctrlKey || e.metaKey));
+                      if (wantSend) {
                         e.preventDefault();
                         sendMessage();
                       }
