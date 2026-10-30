@@ -21,11 +21,14 @@ import { toast } from 'sonner';
 import { useSocket, type OnlineMember } from '@/hooks/use-socket';
 import { useAuth } from '@/hooks/use-auth';
 import { AuthScreen } from '@/components/auth-screen';
+import { MessageContextMenu } from '@/components/message-context-menu';
+import { useI18n } from '@/lib/i18n';
 import {
   Send, Plus, Pin, BarChart3, EyeOff, Trash2, Info, User as UserIcon,
   Menu as MenuIcon, LogOut, ImagePlus, Hash, MessageSquare, MoreVertical,
   Search, ChevronRight, Settings, Megaphone, BookOpen, ShoppingBag, Sparkles,
   CheckCircle2, Circle, X, Users, AlertCircle, Sun, Moon, Wifi, WifiOff,
+  Reply, Forward, Copy, Video, Smile, Paperclip,
 } from 'lucide-react';
 
 // ============================================================================
@@ -235,8 +238,13 @@ export default function ClientApp() {
   const [searchQuery, setSearchQuery] = useState('');
   // Sidebar tab: 'rooms' (channels and chats) | 'members' (online list)
   const [sidebarTab, setSidebarTab] = useState<'rooms' | 'members'>('rooms');
+  const [replyTo, setReplyTo] = useState<Message | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const videoInputRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  // i18n
+  const { t } = useI18n();
 
   // Auth via Supabase
   const { user: authUser, loading: authLoading } = useAuth();
@@ -422,6 +430,7 @@ export default function ClientApp() {
     socket?.emit('message:new', { roomId: activeRoom.id, message: msg });
     setInputValue('');
     setPendingImage(undefined);
+    setReplyTo(null);
   };
 
   const toggleAnon = () => setState(prev => ({ ...prev, anon: !prev.anon }));
@@ -789,6 +798,25 @@ export default function ClientApp() {
                         msg={it}
                         currentUserId={state.user!.id}
                         showHeader={showHeader}
+                        onReply={(m) => setReplyTo(m)}
+                        onPin={() => setModalMode('pin')}
+                        onUnpin={pinned ? unpin : undefined}
+                        onDelete={(m) => {
+                          setState(prev => ({
+                            ...prev,
+                            rooms: prev.rooms.map(r =>
+                              r.id === activeRoom?.id
+                                ? { ...r, messages: r.messages.filter(msg => msg.id !== m.id) }
+                                : r,
+                            ),
+                          }));
+                          toast(t('msg.deleted'));
+                        }}
+                        onCopy={(text) => {
+                          navigator.clipboard?.writeText(text);
+                          toast(t('msg.copied'));
+                        }}
+                        t={t}
                       />
                     );
                   })}
@@ -810,16 +838,30 @@ export default function ClientApp() {
           {/* Composer */}
           <div className="glass border-t border-border p-3 sm:p-4">
             <div className="max-w-3xl mx-auto">
+              {/* Reply preview */}
+              {replyTo && (
+                <div className="mb-2 flex items-center gap-2 p-2 rounded-lg bg-muted/40 border border-border text-xs">
+                  <Reply className="size-3.5 text-primary shrink-0" />
+                  <div className="flex-1 min-w-0">
+                    <span className="text-muted-foreground">{t('msg.repliedTo')} </span>
+                    <span className="font-medium">{replyTo.authorName}: </span>
+                    <span className="text-muted-foreground truncate">{replyTo.text?.slice(0, 60) || '...'}</span>
+                  </div>
+                  <Button variant="ghost" size="icon" className="size-5 shrink-0" onClick={() => setReplyTo(null)}>
+                    <X className="size-3" />
+                  </Button>
+                </div>
+              )}
               {pendingImage && (
                 <div className="mb-2 inline-block relative">
                   {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={pendingImage} alt="Прикрепление" className="max-h-32 rounded-lg border border-border" />
+                  <img src={pendingImage} alt="attachment" className="max-h-32 rounded-lg border border-border" />
                   <Button
                     variant="destructive"
                     size="icon"
                     className="absolute -top-2 -right-2 size-6"
                     onClick={() => setPendingImage(undefined)}
-                    aria-label="Remove изображение"
+                    aria-label="Remove image"
                   >
                     <X className="size-3" />
                   </Button>
@@ -833,15 +875,31 @@ export default function ClientApp() {
                   onChange={handleAttach}
                   className="hidden"
                 />
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="shrink-0"
-                  onClick={() => fileInputRef.current?.click()}
-                  aria-label="Attach image"
-                >
-                  <ImagePlus className="size-5" />
-                </Button>
+                {/* Toolbar buttons */}
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button variant="ghost" size="icon" className="shrink-0" onClick={() => fileInputRef.current?.click()} aria-label={t('msg.attachImage')}>
+                      <ImagePlus className="size-5" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>{t('msg.attachImage')}</TooltipContent>
+                </Tooltip>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button variant="ghost" size="icon" className="shrink-0" onClick={() => setModalMode('poll')} aria-label={t('poll.new')}>
+                      <BarChart3 className="size-5" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>{t('poll.new')}</TooltipContent>
+                </Tooltip>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button variant="ghost" size="icon" className="shrink-0" onClick={() => setModalMode('anon')} aria-label={t('anon.new')}>
+                      <EyeOff className="size-5" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>{t('anon.new')}</TooltipContent>
+                </Tooltip>
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <Button
@@ -849,12 +907,12 @@ export default function ClientApp() {
                       size="icon"
                       className={`shrink-0 ${state.anon ? 'text-primary border border-primary/40' : ''}`}
                       onClick={toggleAnon}
-                      aria-label="Anonymous"
+                      aria-label={t('msg.anonymous')}
                     >
-                      <EyeOff className="size-5" />
+                      <EyeOff className="size-4" />
                     </Button>
                   </TooltipTrigger>
-                  <TooltipContent>{state.anon ? 'Anonymous mode on' : 'Send анонимно'}</TooltipContent>
+                  <TooltipContent>{state.anon ? t('msg.anonModeOn') : t('msg.sendAnon')}</TooltipContent>
                 </Tooltip>
                 <Textarea
                   value={inputValue}
@@ -865,7 +923,7 @@ export default function ClientApp() {
                       sendMessage();
                     }
                   }}
-                  placeholder="Type a message…"
+                  placeholder={t('msg.typePlaceholder')}
                   rows={1}
                   className="resize-none min-h-[42px] max-h-32 flex-1"
                   maxLength={MAX_MSG_LEN}
@@ -1252,12 +1310,13 @@ function Avatar(props: { user: { id: string; name: string; avatar?: string }; si
 // MessageItem — с группировкой по автору
 // ============================================================================
 
-function MessageItem(props: { msg: Message; currentUserId: string; showHeader: boolean }) {
-  const { msg, currentUserId, showHeader } = props;
+function MessageItem(props: { msg: Message; currentUserId: string; showHeader: boolean; onReply?: (msg: Message) => void; onPin?: () => void; onUnpin?: () => void; onDelete?: (msg: Message) => void; onForward?: (msg: Message) => void; onCopy?: (text: string) => void; t: (key: string) => string }) {
+  const { msg, currentUserId, showHeader, onReply, onPin, onUnpin, onDelete, onForward, onCopy, t } = props;
   const mine = msg.authorId === currentUserId;
   const safeImage = safeDataUrl(msg.image);
 
   return (
+    <MessageContextMenu isOwn={mine} hasText={Boolean(msg.text)} onReply={onReply ? () => onReply(msg) : undefined} onPin={onPin} onUnpin={onUnpin} onDelete={onDelete ? () => onDelete(msg) : undefined} onForward={onForward ? () => onForward(msg) : undefined} onCopy={onCopy && msg.text ? () => onCopy(msg.text) : undefined} t={t}>
     <div className={`flex gap-3 ${mine ? 'flex-row-reverse' : ''} ${showHeader ? 'mt-2' : 'mt-0.5'}`}>
       <div className="w-9 shrink-0 flex justify-center">
         {showHeader ? (
@@ -1302,6 +1361,7 @@ function MessageItem(props: { msg: Message; currentUserId: string; showHeader: b
         </div>
       </div>
     </div>
+    </MessageContextMenu>
   );
 }
 
