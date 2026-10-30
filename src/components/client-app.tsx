@@ -38,7 +38,7 @@ import {
   Menu as MenuIcon, LogOut, ImagePlus, Hash, MessageSquare, MoreVertical,
   Search, ChevronRight, Settings, Megaphone, BookOpen, ShoppingBag, Sparkles,
   CheckCircle2, Circle, X, Users, AlertCircle, Sun, Moon, Wifi, WifiOff,
-  Reply, Forward, Copy, Video, Smile, Paperclip, UserPlus, Pencil,
+  Reply, Forward, Copy, Video, Smile, Paperclip, UserPlus,
 } from 'lucide-react';
 
 // ============================================================================
@@ -1054,44 +1054,6 @@ export default function ClientApp() {
                 ) : null}
               </div>
             )}
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="ghost" size="icon" aria-label="Actions">
-                  <MoreVertical className="size-4" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-52 dropdown-in">
-                {activePinned && (
-                  <DropdownMenuItem onClick={unpin}>
-                    <X className="size-4 mr-2" /> {t('room.unpin')}
-                  </DropdownMenuItem>
-                )}
-                <DropdownMenuItem onClick={() => setModalMode('poll')}>
-                  <BarChart3 className="size-4 mr-2" /> {t('poll.new')}
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => setModalMode('anon')}>
-                  <EyeOff className="size-4 mr-2" /> {t('anon.new')}
-                </DropdownMenuItem>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem onClick={() => setModalMode('info')}>
-                  <Info className="size-4 mr-2" /> Info
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => setModalMode('profile')}>
-                  <UserIcon className="size-4 mr-2" /> {t('nav.openProfile')}
-                </DropdownMenuItem>
-                {/* Delete: channels for admin; DMs/groups for creator or admin */}
-                {activeRoom && (activeRoom.roomType === 'channel' ? isAdmin : true) && (
-                  <>
-                    <DropdownMenuSeparator />
-                    <DropdownMenuItem className="text-destructive" onClick={() => {
-                      if (confirm(`Delete «${activeRoom.name}»?`)) deleteRoom(activeRoom.id);
-                    }}>
-                      <Trash2 className="size-4 mr-2" /> Delete
-                    </DropdownMenuItem>
-                  </>
-                )}
-              </DropdownMenuContent>
-            </DropdownMenu>
           </header>
 
           {/* Pinned banner */}
@@ -1273,6 +1235,45 @@ export default function ClientApp() {
                   </TooltipTrigger>
                   <TooltipContent>{anon ? t('msg.anonModeOn') : t('msg.sendAnon')}</TooltipContent>
                 </Tooltip>
+                {/* Room actions ⋮ (moved from the header top-right) */}
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button variant="ghost" size="icon" className="shrink-0" aria-label={t('msg.moreActions')}>
+                      <MoreVertical className="size-5" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="start" className="w-52 dropdown-in">
+                    {activePinned && (
+                      <DropdownMenuItem onClick={unpin}>
+                        <X className="size-4 mr-2" /> {t('room.unpin')}
+                      </DropdownMenuItem>
+                    )}
+                    <DropdownMenuItem onClick={() => setModalMode('poll')}>
+                      <BarChart3 className="size-4 mr-2" /> {t('poll.new')}
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => setModalMode('anon')}>
+                      <EyeOff className="size-4 mr-2" /> {t('anon.new')}
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem onClick={() => setModalMode('info')}>
+                      <Info className="size-4 mr-2" /> Info
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => setModalMode('profile')}>
+                      <UserIcon className="size-4 mr-2" /> {t('nav.openProfile')}
+                    </DropdownMenuItem>
+                    {/* Delete: channels for admin; DMs/groups for creator or admin */}
+                    {activeRoom && (activeRoom.roomType === 'channel' ? isAdmin : true) && (
+                      <>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem className="text-destructive" onClick={() => {
+                          if (confirm(`Delete «${activeRoom.name}»?`)) deleteRoom(activeRoom.id);
+                        }}>
+                          <Trash2 className="size-4 mr-2" /> Delete
+                        </DropdownMenuItem>
+                      </>
+                    )}
+                  </DropdownMenuContent>
+                </DropdownMenu>
                 <Textarea
                   value={inputValue}
                   onChange={(e) => setInputValue(e.target.value)}
@@ -1774,75 +1775,13 @@ function MessageItem(props: { msg: Message; currentUserId: string; showHeader: b
   const isVideo = msg.mediaType === 'video';
   const safeImage = safeDataUrl(msg.image);
 
-  // Action callbacks (shared between context menu and ⋮ dropdown)
+  // Action callbacks (used by the right-click / long-press context menu)
   const onReplyCb = onReply ? () => onReply(msg) : undefined;
   const onForwardCb = onForward ? () => onForward(msg) : undefined;
   const onDeleteCb = onDelete ? () => onDelete(msg) : undefined;
   const onEditCb = (onEdit && mine && msg.text) ? () => onEdit(msg) : undefined;
   const onCopyCb = (onCopy && msg.text) ? () => onCopy(msg.text) : undefined;
   const onPinCb = onPin ? () => onPin(msg) : undefined;
-
-  // ⋮ dropdown menu content (full set of actions, shown on hover)
-  const moreMenu = (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <button
-          type="button"
-          aria-label={t('msg.moreActions')}
-          className="size-7 shrink-0 inline-flex items-center justify-center rounded-full
-            text-muted-foreground/60 hover:bg-foreground/10 hover:text-foreground
-            transition-colors"
-          onClick={(e) => e.stopPropagation()}
-        >
-          <MoreVertical className="size-4" />
-        </button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align={mine ? 'end' : 'start'} className="w-48 dropdown-in">
-        {onReplyCb && (
-          <DropdownMenuItem onClick={onReplyCb}>
-            <Reply className="size-4 mr-2" /> {t('msg.reply')}
-          </DropdownMenuItem>
-        )}
-        {onCopyCb && (
-          <DropdownMenuItem onClick={onCopyCb}>
-            <Copy className="size-4 mr-2" /> {t('msg.copy')}
-          </DropdownMenuItem>
-        )}
-        {onForwardCb && (
-          <DropdownMenuItem onClick={onForwardCb}>
-            <Forward className="size-4 mr-2" /> {t('msg.forward')}
-          </DropdownMenuItem>
-        )}
-        {onEditCb && (
-          <DropdownMenuItem onClick={onEditCb}>
-            <Pencil className="size-4 mr-2" /> {t('msg.edit')}
-          </DropdownMenuItem>
-        )}
-        <DropdownMenuSeparator />
-        {isPinned ? (
-          onUnpin && (
-            <DropdownMenuItem onClick={onUnpin}>
-              <EyeOff className="size-4 mr-2" /> {t('msg.unpin')}
-            </DropdownMenuItem>
-          )
-        ) : (
-          onPinCb && (
-            <DropdownMenuItem onClick={onPinCb}>
-              <Pin className="size-4 mr-2" /> {t('msg.pin')}
-            </DropdownMenuItem>
-          )
-        )}
-        {onDeleteCb && (
-          <>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem onClick={onDeleteCb} className="text-destructive">
-              <Trash2 className="size-4 mr-2" /> {t('msg.delete')}
-            </DropdownMenuItem>
-          </>
-        )}
-      </DropdownMenuContent>
-    </DropdownMenu>
-  );
 
   return (
     <MessageContextMenu isOwn={mine} hasText={Boolean(msg.text)} isPinned={isPinned} onReply={onReplyCb} onPin={onPinCb} onUnpin={onUnpin} onDelete={onDeleteCb} onForward={onForwardCb} onCopy={onCopyCb} onEdit={onEditCb} t={t}>
@@ -1973,8 +1912,6 @@ function MessageItem(props: { msg: Message; currentUserId: string; showHeader: b
               </>
             )}
           </div>
-          {/* ⋮ More button — appears on hover */}
-          {!isEditing && moreMenu}
         </div>
       </div>
     </div>
