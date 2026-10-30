@@ -26,14 +26,12 @@ import { MessageContextMenu } from '@/components/message-context-menu';
 import { LanguageSwitcher } from '@/components/language-switcher';
 import { useI18n } from '@/lib/i18n';
 import {
-  type DbRoom, type DbMessage, type DbProfile,
-  loadRooms, loadMessages, loadProfiles,
-  insertMessage, deleteMessage as apiDeleteMessage,
+  type DbRoom, type DbMessage, type DbProfile, type DbRoomMember,
+  loadRooms, loadMessages, loadProfiles, loadRoom,
+  insertMessage, softDeleteMessage as apiDeleteMessage, editMessage as apiEditMessage,
   findOrCreateDm, createGroup as apiCreateGroup,
   pinMessageDb, loadPin, unpinDb,
   subscribeToRoomMessages, subscribeToRooms, subscribeToPin,
-  decodeDmMeta, decodeGroupMeta, dmOtherUserId, isDmForUser, isGroupForUser,
-  encodeMsgText, parseMsgText,
 } from '@/lib/api';
 import {
   Send, Plus, Pin, BarChart3, EyeOff, Trash2, Info, User as UserIcon,
@@ -65,23 +63,27 @@ interface Message {
   authorId: string;
   authorName: string;
   role?: Role;
-  text: string;           // raw text, may include holler:meta prefix
+  text: string;
   ts: number;
   anon?: boolean;
   image?: string;
   mediaType?: 'image' | 'video';
-  reply?: { msgId: string; snippet: string };
-  fwd?: { fromName: string; snippet: string };
+  replyTo?: string;        // reply_to message id (schema v2 column)
+  replySnippet?: string;   // resolved snippet for display
+  forwardedFrom?: string;  // original author name
+  forwardedBy?: string;    // who forwarded
+  deletedAt?: number;
+  editedAt?: number;
 }
 
 interface Room {
   id: string;
   name: string;
   kind: RoomKind;
+  roomType: 'channel' | 'dm' | 'group'; // schema v2 room_type column
   category?: RoomCategory;
   about?: string;
   messages: Message[];
-  // Derived from `about` JSON for DM/group rooms
   dmOtherUserId?: string;
   dmOtherName?: string;
   groupMembers?: string[];
@@ -144,11 +146,11 @@ const CATEGORIES = [
 ] as const;
 
 const DEFAULT_ROOMS: Room[] = [
-  { id: 'c_ann', name: 'Announcements', kind: 'channel', category: 'announcements', about: 'Schedule changes, deadlines, important stuff', messages: [] },
-  { id: 'c_life', name: 'Class Life', kind: 'channel', category: 'life', about: 'Photos, stories, memes', messages: [] },
-  { id: 'c_study', name: 'Study', kind: 'channel', category: 'study', about: 'Homework, notes, cheat sheets', messages: [] },
-  { id: 'c_shop', name: 'Marketplace', kind: 'channel', category: 'shop', about: 'Sell, buy, give away', messages: [] },
-  { id: 'g_main', name: 'General Chat', kind: 'chat', category: 'general', about: 'Class communication', messages: [] },
+  { id: 'c_ann', name: 'Announcements', kind: 'channel', roomType: 'channel', category: 'announcements', about: 'Schedule changes, deadlines, important stuff', messages: [] },
+  { id: 'c_life', name: 'Class Life', kind: 'channel', roomType: 'channel', category: 'life', about: 'Photos, stories, memes', messages: [] },
+  { id: 'c_study', name: 'Study', kind: 'channel', roomType: 'channel', category: 'study', about: 'Homework, notes, cheat sheets', messages: [] },
+  { id: 'c_shop', name: 'Marketplace', kind: 'channel', roomType: 'channel', category: 'shop', about: 'Sell, buy, give away', messages: [] },
+  { id: 'g_main', name: 'General Chat', kind: 'chat', roomType: 'channel', category: 'general', about: 'Class communication', messages: [] },
 ];
 
 const AVATAR_COLORS = ['#f5a623', '#e94e6a', '#3fb950', '#9d7bd8', '#39c5cf', '#d29922', '#db61a2', '#7ee787'];
@@ -241,77 +243,47 @@ function savePrefs(p: Prefs): void {
 // Converters: DB rows → app types
 // ============================================================================
 
-/** Convert a DB message row (with raw text + image) to app Message,
- *  parsing the holler:meta prefix for reply/forward. */
+/** Convert a DB message row to app Message (schema v2: real columns for media/reply/forward). */
 function dbMsgToApp(m: DbMessage): Message {
-  const parsed = parseMsgText(m.text);
   return {
     id: m.id,
     authorId: m.author_id ?? 'unknown',
     authorName: m.author_name,
     role: m.author_role === 'admin' ? 'admin' : 'member',
-    text: parsed.body,
+    text: m.text ?? '',
     ts: new Date(m.created_at).getTime(),
     anon: m.is_anonymous,
     image: m.image ?? undefined,
-    mediaType: undefined, // we encode video into image field with prefix in handleAttach
-    reply: parsed.reply,
-    fwd: parsed.fwd,
+    mediaType: m.media_type ?? undefined,
+    replyTo: m.reply_to ?? undefined,
+    forwardedFrom: m.forwarded_from ?? undefined,
+    forwardedBy: m.forwarded_by ?? undefined,
+    deletedAt: m.deleted_at ? new Date(m.deleted_at).getTime() : undefined,
+    editedAt: m.edited_at ? new Date(m.edited_at).getTime() : undefined,
   };
 }
 
-/** Convert a DB room row to app Room, deriving DM/group metadata from `about`. */
-function dbRoomToApp(r: DbRoom, profiles: DbProfile[]): Room {
+/** Convert a DB room row to app Room using real room_type/dm_user1/2 columns. */
+function dbRoomToApp(r: DbRoom, myId: string, profiles: DbProfile[]): Room {
   const room: Room = {
     id: r.id,
     name: r.name,
     kind: r.kind,
-    category: r.category ?? undefined,
+    roomType: r.room_type,
+    category: r.room_type === 'dm' ? 'dm' : r.room_type === 'group' ? 'group' : (r.category ?? undefined),
     about: r.about ?? undefined,
     messages: [],
     createdBy: r.created_by ?? undefined,
     createdAt: new Date(r.created_at).getTime(),
   };
-  if (r.category === 'dm') {
-    const otherId = dmOtherUserId(r, ''); // we'll resolve below
-    // For DM, look up the other user's name from profiles
-    const meta = decodeDmMeta(r.about);
-    if (meta) {
-      // We don't know "my id" here, so we'll set dmOtherUserId later via setDmNames
-      room.dmOtherUserId = otherId ?? undefined;
-    }
-  } else if (r.category === 'group') {
-    const meta = decodeGroupMeta(r.about);
-    if (meta) {
-      room.groupMembers = meta.members;
-    }
-  }
-  // Resolve display name
-  if (r.category === 'dm') {
-    const meta = decodeDmMeta(r.about);
-    if (meta) {
-      // We need to know which user is "me" to find the other; defer
-      // Store both, will resolve in component
-    }
+  if (r.room_type === 'dm') {
+    const otherId = r.dm_user1 === myId ? r.dm_user2 : r.dm_user1;
+    room.dmOtherUserId = otherId ?? undefined;
+    const other = profiles.find(p => p.id === otherId);
+    room.dmOtherName = other?.name;
+    room.name = other?.name ?? r.name;
   }
   return room;
-}
-
-/** Resolve DM room display name based on the current user. */
-function resolveDmName(room: Room, myId: string, profiles: DbProfile[]): Room {
-  if (room.category !== 'dm') return room;
-  // Re-parse to get both user IDs
-  const meta = room.about ? decodeDmMeta(room.about) : null;
-  if (!meta) return room;
-  const otherId = meta.u1 === myId ? meta.u2 : meta.u2 === myId ? meta.u1 : null;
-  if (!otherId) return room;
-  const otherProfile = profiles.find(p => p.id === otherId);
-  return {
-    ...room,
-    dmOtherUserId: otherId,
-    dmOtherName: otherProfile?.name ?? 'Unknown user',
-    name: otherProfile?.name ?? 'Direct message',
-  };
 }
 
 // ============================================================================
@@ -329,6 +301,7 @@ export default function ClientApp() {
   const [polls, setPolls] = useState<Poll[]>([]);
   const [anonQs, setAnonQs] = useState<AnonQuestion[]>([]);
   const [profiles, setProfiles] = useState<DbProfile[]>([]);
+  const [roomMemberships, setRoomMemberships] = useState<DbRoomMember[]>([]);
   const [loadingRooms, setLoadingRooms] = useState(true);
 
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -387,12 +360,13 @@ export default function ClientApp() {
   const refreshRooms = useCallback(async () => {
     if (!user) return;
     try {
-      const [dbRooms, dbProfiles] = await Promise.all([loadRooms(user.id), loadProfiles()]);
+      const [{ rooms: dbRooms, memberships }, dbProfiles] = await Promise.all([
+        loadRooms(user.id),
+        loadProfiles(),
+      ]);
       setProfiles(dbProfiles);
-      const appRooms = dbRooms.map(r => {
-        const base = dbRoomToApp(r, dbProfiles);
-        return resolveDmName(base, user.id, dbProfiles);
-      });
+      const appRooms = dbRooms.map(r => dbRoomToApp(r, user.id, dbProfiles));
+      setRoomMemberships(memberships);
       setRooms(appRooms);
       // If no active room yet, pick the first channel
       setActive(prev => {
@@ -437,20 +411,23 @@ export default function ClientApp() {
     const unsub = subscribeToRoomMessages(
       active,
       (dbMsg) => {
-        // Anticipate own messages by id — they were already added locally
         const appMsg = dbMsgToApp(dbMsg);
-        if (appMsg.authorId === user.id) {
-          // Already added optimistically in sendMessage; just update id if needed
-          return;
-        }
+        // Own messages were already added optimistically in sendMessage
+        if (appMsg.authorId === user.id) return;
         setRooms(prev => prev.map(r =>
           r.id === active ? { ...r, messages: [...r.messages, appMsg] } : r,
         ));
       },
-      (msgId) => {
-        setRooms(prev => prev.map(r =>
-          r.id === active ? { ...r, messages: r.messages.filter(m => m.id !== msgId) } : r,
-        ));
+      (dbMsg) => {
+        // UPDATE event: soft-deleted messages disappear, edits refresh
+        const appMsg = dbMsgToApp(dbMsg);
+        setRooms(prev => prev.map(r => {
+          if (r.id !== active) return r;
+          if (appMsg.deletedAt) {
+            return { ...r, messages: r.messages.filter(m => m.id !== appMsg.id) };
+          }
+          return { ...r, messages: r.messages.map(m => m.id === appMsg.id ? appMsg : m) };
+        }));
       },
     );
     // Also subscribe to pin changes
@@ -520,22 +497,6 @@ export default function ClientApp() {
     const cleanText = sanitizeText(inputValue, MAX_MSG_LEN);
     if (!cleanText && !pendingImage) return;
 
-    // Encode reply/forward metadata into text prefix
-    const meta: { reply?: { msgId: string; snippet: string }; fwd?: { fromName: string; snippet: string } } = {};
-    if (replyTo) {
-      meta.reply = {
-        msgId: replyTo.id,
-        snippet: (replyTo.text || (replyTo.image ? '[attachment]' : '')).slice(0, 80),
-      };
-    }
-    if (forwardMsg) {
-      meta.fwd = {
-        fromName: forwardMsg.authorName,
-        snippet: (forwardMsg.text || (forwardMsg.image ? '[attachment]' : '')).slice(0, 80),
-      };
-    }
-    const encodedText = encodeMsgText(cleanText, Object.keys(meta).length ? meta : undefined);
-
     // Optimistic local insert with a temp id
     const tempId = `temp_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
     const optimisticMsg: Message = {
@@ -548,37 +509,39 @@ export default function ClientApp() {
       anon,
       image: safeDataUrl(pendingImage),
       mediaType: pendingMediaType,
-      reply: meta.reply,
-      fwd: meta.fwd,
+      replyTo: replyTo?.id,
+      replySnippet: replyTo ? (replyTo.text || (replyTo.image ? '[attachment]' : '')).slice(0, 80) : undefined,
+      forwardedFrom: forwardMsg?.authorName,
     };
     setRooms(prev => prev.map(r =>
       r.id === activeRoom.id ? { ...r, messages: [...r.messages, optimisticMsg] } : r,
     ));
 
-    // Encode image: prefix with 'video:' for videos so DB storage is unambiguous
-    let dbImage = safeDataUrl(pendingImage);
-    if (dbImage && pendingMediaType === 'video') {
-      dbImage = `video:${dbImage}`;
-    }
-
-    // Insert into Supabase
+    // Insert into Supabase (schema v2: real columns)
     const inserted = await insertMessage({
       room_id: activeRoom.id,
       author_id: user.id,
       author_name: user.name,
       author_role: user.role,
-      text: encodedText,
-      image: dbImage ?? null,
+      text: cleanText || null,
+      image: safeDataUrl(pendingImage) ?? null,
+      media_type: pendingImage ? pendingMediaType : null,
+      reply_to: replyTo?.id ?? null,
+      forwarded_from: forwardMsg?.authorName ?? null,
+      forwarded_by: forwardMsg ? user.id : null,
       is_anonymous: anon,
     });
 
     if (inserted) {
-      // Replace optimistic message with the real one (by matching position+text)
       const realMsg = dbMsgToApp(inserted);
+      // Resolve reply snippet from current room messages
+      if (realMsg.replyTo) {
+        const orig = activeRoom.messages.find(m => m.id === realMsg.replyTo);
+        if (orig) realMsg.replySnippet = (orig.text || (orig.image ? '[attachment]' : '')).slice(0, 80);
+      }
       setRooms(prev => prev.map(r => {
         if (r.id !== activeRoom.id) return r;
         const msgs = [...r.messages];
-        // Replace the temp message at the end if it matches
         const idx = msgs.findIndex(m => m.id === tempId);
         if (idx >= 0) msgs[idx] = realMsg;
         else msgs.push(realMsg);
@@ -586,7 +549,6 @@ export default function ClientApp() {
       }));
     } else {
       toast.error('Failed to send message');
-      // Remove optimistic on failure
       setRooms(prev => prev.map(r =>
         r.id === activeRoom.id ? { ...r, messages: r.messages.filter(m => m.id !== tempId) } : r,
       ));
@@ -630,6 +592,7 @@ export default function ClientApp() {
         .insert({
           name: cleanName,
           kind,
+          room_type: 'channel', // plain chat vs channel is distinguished by kind
           category,
           about: sanitizeText(about, MAX_ABOUT_LEN) || null,
           created_by: user.id,
@@ -641,7 +604,7 @@ export default function ClientApp() {
         return;
       }
       // Realtime subscription will refresh the room list, but we also add manually for snappiness
-      const newRoom = dbRoomToApp(data as DbRoom, profiles);
+      const newRoom = dbRoomToApp(data as DbRoom, user.id, profiles);
       setRooms(prev => [...prev, newRoom]);
       setActive(data.id);
       toast.success(kind === 'channel' ? t('room.channelCreated') : t('room.chatCreated'));
@@ -650,27 +613,27 @@ export default function ClientApp() {
     }
   };
 
-  /** Start a DM with another user (creates room if needed, then switches to it). */
+  /** Start a DM with another user via get_or_create_dm RPC. */
   const startDm = async (otherUserId: string) => {
     if (!user) return;
     if (otherUserId === user.id) {
       toast.error("Can't DM yourself");
       return;
     }
-    const otherProfile = profiles.find(p => p.id === otherUserId);
-    if (!otherProfile) {
-      toast.error('User not found');
-      return;
-    }
-    const dmRoom = await findOrCreateDm(user.id, otherUserId, otherProfile.name, user.name);
-    if (!dmRoom) {
+    const roomId = await findOrCreateDm(user.id, otherUserId);
+    if (!roomId) {
       toast.error('Failed to start DM');
       return;
     }
-    // Refresh rooms (realtime will fire, but we also add manually for snappiness)
-    const appRoom = resolveDmName(dbRoomToApp(dmRoom, profiles), user.id, profiles);
-    setRooms(prev => prev.some(r => r.id === dmRoom.id) ? prev : [...prev, appRoom]);
-    setActive(dmRoom.id);
+    // Reload rooms (membership changed); realtime may also fire
+    const dbRoom = await loadRoom(roomId);
+    if (!dbRoom) {
+      toast.error('Failed to load DM room');
+      return;
+    }
+    const appRoom = dbRoomToApp(dbRoom, user.id, profiles);
+    setRooms(prev => prev.some(r => r.id === roomId) ? prev : [...prev, appRoom]);
+    setActive(roomId);
     setSidebarOpen(false);
     setSidebarTab('rooms');
     toast.success(t('room.dmCreated'));
@@ -693,32 +656,37 @@ export default function ClientApp() {
       toast.error('Failed to create group');
       return;
     }
-    const appRoom = dbRoomToApp(groupRoom, profiles);
+    const appRoom = dbRoomToApp(groupRoom, user.id, profiles);
     setRooms(prev => [...prev, appRoom]);
     setActive(groupRoom.id);
     setModalMode(null);
     toast.success(t('room.groupCreated'));
   };
 
-  /** Forward the current `forwardMsg` to the given room. */
+  /** Forward the current `forwardMsg` to the given room (schema v2 forwarded_from). */
   const forwardToRoom = async (roomId: string) => {
     if (!user || !forwardMsg) return;
-    const snippet = (forwardMsg.text || (forwardMsg.image ? '[attachment]' : '')).slice(0, 80);
-    const fwdText = encodeMsgText('', { fwd: { fromName: forwardMsg.authorName, snippet } });
-    // If the original had an image, copy it
-    let dbImage = forwardMsg.image ? safeDataUrl(forwardMsg.image) ?? null : null;
-    if (dbImage && forwardMsg.mediaType === 'video') dbImage = `video:${dbImage}`;
     const inserted = await insertMessage({
       room_id: roomId,
       author_id: user.id,
       author_name: user.name,
       author_role: user.role,
-      text: fwdText || ' ',
-      image: dbImage,
+      text: forwardMsg.text || null,
+      image: forwardMsg.image ? safeDataUrl(forwardMsg.image) ?? null : null,
+      media_type: forwardMsg.image ? (forwardMsg.mediaType ?? 'image') : null,
+      forwarded_from: forwardMsg.authorName,
+      forwarded_by: user.id,
       is_anonymous: false,
     });
     if (inserted) {
       toast.success(t('msg.forwarded'));
+      // If forwarding to the active room, add locally (realtime skips own inserts handled elsewhere)
+      if (roomId === activeRoom?.id) {
+        const appMsg = dbMsgToApp(inserted);
+        setRooms(prev => prev.map(r =>
+          r.id === roomId ? { ...r, messages: [...r.messages, appMsg] } : r,
+        ));
+      }
     } else {
       toast.error('Forward failed');
     }
@@ -833,7 +801,7 @@ export default function ClientApp() {
     toast.success('Profile updated');
   };
 
-  /** Delete a message (only own messages allowed by RLS). */
+  /** Soft-delete a message (sets deleted_at; RLS restricts to author). */
   const deleteMessage = async (msg: Message) => {
     // Optimistic remove
     setRooms(prev => prev.map(r =>
@@ -841,12 +809,10 @@ export default function ClientApp() {
         ? { ...r, messages: r.messages.filter(m => m.id !== msg.id) }
         : r,
     ));
-    // If it's a temp message (failed to insert), nothing to delete server-side
     if (msg.id.startsWith('temp_')) return;
     const ok = await apiDeleteMessage(msg.id);
     if (!ok) {
       toast.error('Failed to delete (only your own messages can be deleted)');
-      // Re-fetch to restore
       if (activeRoom) {
         const dbMsgs = await loadMessages(activeRoom.id);
         setRooms(prev => prev.map(r => r.id === activeRoom.id ? { ...r, messages: dbMsgs.map(dbMsgToApp) } : r));
@@ -962,17 +928,14 @@ export default function ClientApp() {
     }
   }
 
-  // Фильтрация комнат по поиску + по category (DM / Group / Channels)
+  // Фильтрация комнат по поиску + по room_type (DM / Group / Channels)
   const filteredRooms = rooms.filter(r =>
     !searchQuery || r.name.toLowerCase().includes(searchQuery.toLowerCase()),
   );
   const channels = filteredRooms.filter(r => r.kind === 'channel');
-  // DM rooms: category === 'dm'
-  const dms = filteredRooms.filter(r => r.category === 'dm');
-  // Group rooms: category === 'group'
-  const groups = filteredRooms.filter(r => r.category === 'group');
-  // Plain chats (kind='chat', category is general/study/etc — not dm/group)
-  const chats = filteredRooms.filter(r => r.kind === 'chat' && r.category !== 'dm' && r.category !== 'group');
+  const dms = filteredRooms.filter(r => r.roomType === 'dm');
+  const groups = filteredRooms.filter(r => r.roomType === 'group');
+  const chats = filteredRooms.filter(r => r.kind === 'chat' && r.roomType === 'channel');
 
   return (
     <TooltipProvider delayDuration={300}>
@@ -1016,9 +979,9 @@ export default function ClientApp() {
             {activeRoom && (
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2">
-                  {activeRoom.category === 'dm' ? (
+                  {activeRoom.roomType === 'dm' ? (
                     <UserIcon className="size-4 text-primary shrink-0" />
-                  ) : activeRoom.category === 'group' ? (
+                  ) : activeRoom.roomType === 'group' ? (
                     <Users className="size-4 text-primary shrink-0" />
                   ) : activeRoom.kind === 'channel' ? (
                     <Megaphone className="size-4 text-primary shrink-0" />
@@ -1027,8 +990,8 @@ export default function ClientApp() {
                   )}
                   <span className="font-semibold truncate">{activeRoom.name}</span>
                   <Badge variant="outline" className="text-[10px] uppercase tracking-wide hidden sm:inline-flex">
-                    {activeRoom.category === 'dm' ? 'DM' :
-                     activeRoom.category === 'group' ? 'Group' :
+                    {activeRoom.roomType === 'dm' ? 'DM' :
+                     activeRoom.roomType === 'group' ? 'Group' :
                      activeRoom.kind === 'channel' ? 'Channel' : 'Chat'}
                   </Badge>
                 </div>
@@ -1036,7 +999,7 @@ export default function ClientApp() {
                   <div className="text-xs text-muted-foreground truncate">
                     {activeRoom.groupMembers.length} members
                   </div>
-                ) : activeRoom.about && activeRoom.category !== 'dm' ? (
+                ) : activeRoom.about && activeRoom.roomType !== 'dm' ? (
                   <div className="text-xs text-muted-foreground truncate">{activeRoom.about}</div>
                 ) : null}
               </div>
@@ -1070,7 +1033,7 @@ export default function ClientApp() {
                   <UserIcon className="size-4 mr-2" /> {t('nav.openProfile')}
                 </DropdownMenuItem>
                 {/* Delete: channels for admin; DMs/groups for creator or admin */}
-                {activeRoom && (activeRoom.kind === 'channel' ? isAdmin : true) && (
+                {activeRoom && (activeRoom.roomType === 'channel' ? isAdmin : true) && (
                   <>
                     <DropdownMenuSeparator />
                     <DropdownMenuItem className="text-destructive" onClick={() => {
@@ -1324,9 +1287,11 @@ export default function ClientApp() {
         <InfoModal
           onClose={() => setModalMode(null)}
           room={activeRoom}
-          members={activeRoom.groupMembers?.length ?? profiles.length}
+          members={activeRoom.roomType === 'group'
+            ? Math.max(roomMemberships.filter(m => m.room_id === activeRoom.id).length, 1)
+            : profiles.length}
           isAdmin={isAdmin}
-          onDelete={(activeRoom.kind === 'channel' ? isAdmin : true) ? () => { deleteRoom(activeRoom.id); setModalMode(null); } : undefined}
+          onDelete={(activeRoom.roomType === 'channel' ? isAdmin : true) ? () => { deleteRoom(activeRoom.id); setModalMode(null); } : undefined}
         />
       )}
     </TooltipProvider>
@@ -1684,8 +1649,8 @@ function MembersList(props: {
 
 function RoomItem(props: { room: Room; active: boolean; onClick: () => void; onDelete?: (id: string) => void; }) {
   const { room, active, onClick, onDelete } = props;
-  const Icon = room.category === 'dm' ? UserIcon
-    : room.category === 'group' ? Users
+  const Icon = room.roomType === 'dm' ? UserIcon
+    : room.roomType === 'group' ? Users
     : room.kind === 'channel' ? Megaphone
     : MessageSquare;
   return (
@@ -1700,13 +1665,9 @@ function RoomItem(props: { room: Room; active: boolean; onClick: () => void; onD
       <Icon className={`size-4 shrink-0 ${active ? 'text-primary' : ''}`} />
       <div className="flex-1 min-w-0">
         <div className="truncate font-medium">{room.name}</div>
-        {room.category === 'group' && room.groupMembers ? (
-          <div className="text-[11px] text-muted-foreground truncate">
-            {room.groupMembers.length} members
-          </div>
-        ) : room.about && room.category !== 'dm' ? (
+        {room.about && room.roomType !== 'dm' && (
           <div className="text-[11px] text-muted-foreground truncate">{room.about}</div>
-        ) : null}
+        )}
       </div>
       {onDelete && (
         <Button
@@ -1758,10 +1719,9 @@ function Avatar(props: { user: { id: string; name: string; avatar?: string }; si
 function MessageItem(props: { msg: Message; currentUserId: string; showHeader: boolean; onReply?: (msg: Message) => void; onPin?: () => void; onUnpin?: () => void; onDelete?: (msg: Message) => void; onForward?: (msg: Message) => void; onCopy?: (text: string) => void; t: (key: string) => string }) {
   const { msg, currentUserId, showHeader, onReply, onPin, onUnpin, onDelete, onForward, onCopy, t } = props;
   const mine = msg.authorId === currentUserId;
-  // The image field may carry a `video:` prefix to indicate a video attachment
-  const isVideo = !!msg.image && msg.image.startsWith('video:');
-  const rawImage = isVideo ? msg.image!.slice('video:'.length) : msg.image;
-  const safeImage = safeDataUrl(rawImage);
+  // mediaType comes from the real media_type column (schema v2)
+  const isVideo = msg.mediaType === 'video';
+  const safeImage = safeDataUrl(msg.image);
 
   return (
     <MessageContextMenu isOwn={mine} hasText={Boolean(msg.text)} onReply={onReply ? () => onReply(msg) : undefined} onPin={onPin} onUnpin={onUnpin} onDelete={onDelete ? () => onDelete(msg) : undefined} onForward={onForward ? () => onForward(msg) : undefined} onCopy={onCopy && msg.text ? () => onCopy(msg.text) : undefined} t={t}>
@@ -1789,6 +1749,7 @@ function MessageItem(props: { msg: Message; currentUserId: string; showHeader: b
               <Badge variant="secondary" className="text-[10px] px-1 py-0 h-3.5">ADMIN</Badge>
             )}
             <span className="text-muted-foreground">{formatTime(msg.ts)}</span>
+            {msg.editedAt && <span className="text-muted-foreground text-[10px] italic">(edited)</span>}
           </div>
         )}
         <div
@@ -1796,8 +1757,8 @@ function MessageItem(props: { msg: Message; currentUserId: string; showHeader: b
             ${mine ? 'bg-primary text-primary-foreground ' + (showHeader ? 'rounded-tr-sm' : '')
                     : 'bg-card border border-border ' + (showHeader ? 'rounded-tl-sm' : '')}`}
         >
-          {/* Reply quote */}
-          {msg.reply && (
+          {/* Reply quote (schema v2 reply_to + resolved snippet) */}
+          {msg.replyTo && (
             <div className={`mb-1.5 px-2 py-1 rounded-md text-xs border-l-2 ${
               mine ? 'bg-primary-foreground/10 border-primary-foreground/60' : 'bg-muted/50 border-primary'
             }`}>
@@ -1805,12 +1766,12 @@ function MessageItem(props: { msg: Message; currentUserId: string; showHeader: b
                 {t('msg.reply')}
               </div>
               <div className={`truncate ${mine ? 'text-primary-foreground/80' : 'text-muted-foreground'}`}>
-                {msg.reply.snippet}
+                {msg.replySnippet ?? 'Original message'}
               </div>
             </div>
           )}
-          {/* Forward quote */}
-          {msg.fwd && (
+          {/* Forward quote (schema v2 forwarded_from) */}
+          {msg.forwardedFrom && (
             <div className={`mb-1.5 px-2 py-1 rounded-md text-xs border-l-2 ${
               mine ? 'bg-primary-foreground/10 border-primary-foreground/60' : 'bg-muted/50 border-amber-500'
             }`}>
@@ -1818,10 +1779,7 @@ function MessageItem(props: { msg: Message; currentUserId: string; showHeader: b
                 <Forward className="size-2.5" /> {t('msg.forwardedFrom')}
               </div>
               <div className={`text-[10px] ${mine ? 'text-primary-foreground/70' : 'text-muted-foreground'}`}>
-                {msg.fwd.fromName}
-              </div>
-              <div className={`truncate ${mine ? 'text-primary-foreground/80' : 'text-muted-foreground'}`}>
-                {msg.fwd.snippet}
+                {msg.forwardedFrom}
               </div>
             </div>
           )}
@@ -2490,8 +2448,8 @@ function InfoModal(props: {
   onDelete?: () => void;
 }) {
   const { room, members, isAdmin, onDelete } = props;
-  const roomType = room.category === 'dm' ? 'Direct message'
-    : room.category === 'group' ? 'Group'
+  const roomType = room.roomType === 'dm' ? 'Direct message'
+    : room.roomType === 'group' ? 'Group'
     : room.kind === 'channel' ? 'Channel'
     : 'Chat';
   return (
@@ -2515,7 +2473,7 @@ function InfoModal(props: {
           <span className="text-muted-foreground">Type</span>
           <Badge variant="outline">{roomType}</Badge>
         </div>
-        {room.category !== 'dm' && (
+        {room.roomType !== 'dm' && (
           <div className="flex items-center justify-between">
             <span className="text-muted-foreground">Category</span>
             <span className="font-medium">{categoryLabel(room.category)}</span>
@@ -2529,11 +2487,11 @@ function InfoModal(props: {
           <span className="text-muted-foreground">Messages</span>
           <span className="font-medium tabular-nums">{room.messages.length}</span>
         </div>
-        {room.category === 'dm' ? (
+        {room.roomType === 'dm' ? (
           <p className="text-xs text-muted-foreground border-t border-border pt-3 mt-2">
             Private 1-on-1 conversation. Only you and the other participant can see these messages.
           </p>
-        ) : room.category === 'group' ? (
+        ) : room.roomType === 'group' ? (
           <p className="text-xs text-muted-foreground border-t border-border pt-3 mt-2">
             Group chat — only invited members can see this room and read messages.
           </p>
@@ -2696,9 +2654,9 @@ function ForwardModal(props: {
               onClick={() => onForward(r.id)}
               className="w-full flex items-center gap-3 px-3 py-2 hover:bg-muted/40 transition-colors text-left"
             >
-              {r.category === 'dm' ? (
+              {r.roomType === 'dm' ? (
                 <UserIcon className="size-4 shrink-0 text-primary" />
-              ) : r.category === 'group' ? (
+              ) : r.roomType === 'group' ? (
                 <Users className="size-4 shrink-0 text-primary" />
               ) : r.kind === 'channel' ? (
                 <Megaphone className="size-4 shrink-0 text-primary" />
@@ -2708,8 +2666,8 @@ function ForwardModal(props: {
               <div className="flex-1 min-w-0">
                 <div className="text-sm font-medium truncate">{r.name}</div>
                 <div className="text-xs text-muted-foreground">
-                  {r.category === 'dm' ? 'Direct message'
-                    : r.category === 'group' ? `Group · ${r.groupMembers?.length ?? 0} members`
+                  {r.roomType === 'dm' ? 'Direct message'
+                    : r.roomType === 'group' ? 'Group'
                     : r.kind === 'channel' ? 'Channel'
                     : 'Chat'}
                 </div>
