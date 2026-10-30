@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -9,6 +9,7 @@ import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
 import { Checkbox } from '@/components/ui/checkbox';
+import { joinClass } from '@/lib/client-join';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -25,11 +26,21 @@ import { MessageContextMenu } from '@/components/message-context-menu';
 import { LanguageSwitcher } from '@/components/language-switcher';
 import { useI18n } from '@/lib/i18n';
 import {
+  type DbRoom, type DbMessage, type DbProfile,
+  loadRooms, loadMessages, loadProfiles,
+  insertMessage, deleteMessage as apiDeleteMessage,
+  findOrCreateDm, createGroup as apiCreateGroup,
+  pinMessageDb, loadPin, unpinDb,
+  subscribeToRoomMessages, subscribeToRooms, subscribeToPin,
+  decodeDmMeta, decodeGroupMeta, dmOtherUserId, isDmForUser, isGroupForUser,
+  encodeMsgText, parseMsgText,
+} from '@/lib/api';
+import {
   Send, Plus, Pin, BarChart3, EyeOff, Trash2, Info, User as UserIcon,
   Menu as MenuIcon, LogOut, ImagePlus, Hash, MessageSquare, MoreVertical,
   Search, ChevronRight, Settings, Megaphone, BookOpen, ShoppingBag, Sparkles,
   CheckCircle2, Circle, X, Users, AlertCircle, Sun, Moon, Wifi, WifiOff,
-  Reply, Forward, Copy, Video, Smile, Paperclip,
+  Reply, Forward, Copy, Video, Smile, Paperclip, UserPlus,
 } from 'lucide-react';
 
 // ============================================================================
@@ -38,13 +49,15 @@ import {
 
 type Role = 'member' | 'admin';
 type RoomKind = 'channel' | 'chat';
-type ModalMode = 'addChannel' | 'pin' | 'poll' | 'anon' | 'profile' | 'info' | null;
+type RoomCategory = string; // 'announcements' | 'study' | 'dm' | 'group' | 'general' | ...
+type ModalMode = 'addChannel' | 'pin' | 'poll' | 'anon' | 'profile' | 'info' | 'createGroup' | 'forward' | 'newDm' | null;
 
 interface User {
   id: string;
   name: string;
   role: Role;
   avatar?: string;
+  email?: string;
 }
 
 interface Message {
@@ -52,20 +65,28 @@ interface Message {
   authorId: string;
   authorName: string;
   role?: Role;
-  text: string;
+  text: string;           // raw text, may include holler:meta prefix
   ts: number;
   anon?: boolean;
   image?: string;
   mediaType?: 'image' | 'video';
+  reply?: { msgId: string; snippet: string };
+  fwd?: { fromName: string; snippet: string };
 }
 
 interface Room {
   id: string;
   name: string;
   kind: RoomKind;
-  category?: string; // короткая текстовая метка вместо эмодзи
+  category?: RoomCategory;
   about?: string;
   messages: Message[];
+  // Derived from `about` JSON for DM/group rooms
+  dmOtherUserId?: string;
+  dmOtherName?: string;
+  groupMembers?: string[];
+  createdBy?: string;
+  createdAt?: number;
 }
 
 interface PollOption { t: string; votes: string[]; }
@@ -186,45 +207,111 @@ function sanitizeText(input: unknown, maxLen: number): string {
 }
 
 // ============================================================================
-// Загрузка/сохранение (с миграцией из v1)
+// Загрузка/сохранение — только UI prefs (active room, anon, polls cache)
+// Rooms и messages теперь хранятся в Supabase, не в localStorage.
 // ============================================================================
 
-function loadState(): AppState {
-  const base: AppState = {
-    user: null,
-    rooms: DEFAULT_ROOMS,
-    active: 'g_main',
-    anon: false,
-    pinned: null,
-    polls: [],
-    anonQs: [],
-  };
+interface Prefs {
+  active: string;
+  anon: boolean;
+  theme?: 'light' | 'dark';
+}
+
+function loadPrefs(): Prefs {
+  const base: Prefs = { active: '', anon: false };
   if (typeof window === 'undefined') return base;
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return base;
-    const p = JSON.parse(raw) as Partial<AppState>;
+    const p = JSON.parse(raw) as Partial<Prefs>;
     return {
-      user: p.user ?? null,
-      rooms: Array.isArray(p.rooms) && p.rooms.length ? p.rooms : DEFAULT_ROOMS,
-      active: typeof p.active === 'string' ? p.active : 'g_main',
+      active: typeof p.active === 'string' ? p.active : '',
       anon: !!p.anon,
-      pinned: p.pinned ?? null,
-      polls: Array.isArray(p.polls) ? p.polls : [],
-      anonQs: Array.isArray(p.anonQs) ? p.anonQs : [],
+      theme: p.theme,
     };
-  } catch {
-    return base;
-  }
+  } catch { return base; }
 }
 
-function saveState(s: AppState): void {
+function savePrefs(p: Prefs): void {
   if (typeof window === 'undefined') return;
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(s));
-  } catch {
-    toast.error('Failed to save — возможно, переполнен localStorage');
+  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(p)); } catch {}
+}
+
+// ============================================================================
+// Converters: DB rows → app types
+// ============================================================================
+
+/** Convert a DB message row (with raw text + image) to app Message,
+ *  parsing the holler:meta prefix for reply/forward. */
+function dbMsgToApp(m: DbMessage): Message {
+  const parsed = parseMsgText(m.text);
+  return {
+    id: m.id,
+    authorId: m.author_id ?? 'unknown',
+    authorName: m.author_name,
+    role: m.author_role === 'admin' ? 'admin' : 'member',
+    text: parsed.body,
+    ts: new Date(m.created_at).getTime(),
+    anon: m.is_anonymous,
+    image: m.image ?? undefined,
+    mediaType: undefined, // we encode video into image field with prefix in handleAttach
+    reply: parsed.reply,
+    fwd: parsed.fwd,
+  };
+}
+
+/** Convert a DB room row to app Room, deriving DM/group metadata from `about`. */
+function dbRoomToApp(r: DbRoom, profiles: DbProfile[]): Room {
+  const room: Room = {
+    id: r.id,
+    name: r.name,
+    kind: r.kind,
+    category: r.category ?? undefined,
+    about: r.about ?? undefined,
+    messages: [],
+    createdBy: r.created_by ?? undefined,
+    createdAt: new Date(r.created_at).getTime(),
+  };
+  if (r.category === 'dm') {
+    const otherId = dmOtherUserId(r, ''); // we'll resolve below
+    // For DM, look up the other user's name from profiles
+    const meta = decodeDmMeta(r.about);
+    if (meta) {
+      // We don't know "my id" here, so we'll set dmOtherUserId later via setDmNames
+      room.dmOtherUserId = otherId ?? undefined;
+    }
+  } else if (r.category === 'group') {
+    const meta = decodeGroupMeta(r.about);
+    if (meta) {
+      room.groupMembers = meta.members;
+    }
   }
+  // Resolve display name
+  if (r.category === 'dm') {
+    const meta = decodeDmMeta(r.about);
+    if (meta) {
+      // We need to know which user is "me" to find the other; defer
+      // Store both, will resolve in component
+    }
+  }
+  return room;
+}
+
+/** Resolve DM room display name based on the current user. */
+function resolveDmName(room: Room, myId: string, profiles: DbProfile[]): Room {
+  if (room.category !== 'dm') return room;
+  // Re-parse to get both user IDs
+  const meta = room.about ? decodeDmMeta(room.about) : null;
+  if (!meta) return room;
+  const otherId = meta.u1 === myId ? meta.u2 : meta.u2 === myId ? meta.u1 : null;
+  if (!otherId) return room;
+  const otherProfile = profiles.find(p => p.id === otherId);
+  return {
+    ...room,
+    dmOtherUserId: otherId,
+    dmOtherName: otherProfile?.name ?? 'Unknown user',
+    name: otherProfile?.name ?? 'Direct message',
+  };
 }
 
 // ============================================================================
@@ -232,16 +319,27 @@ function saveState(s: AppState): void {
 // ============================================================================
 
 export default function ClientApp() {
-  const [state, setState] = useState<AppState>(() => loadState());
+  // prefs only — rooms/messages are loaded from Supabase
+  const [prefs, setPrefs] = useState<Prefs>(() => loadPrefs());
+  const [user, setUser] = useState<User | null>(null);
+  const [rooms, setRooms] = useState<Room[]>([]);
+  const [active, setActive] = useState<string>(prefs.active ?? '');
+  const [anon, setAnon] = useState<boolean>(prefs.anon);
+  const [pinned, setPinned] = useState<Pinned | null>(null);
+  const [polls, setPolls] = useState<Poll[]>([]);
+  const [anonQs, setAnonQs] = useState<AnonQuestion[]>([]);
+  const [profiles, setProfiles] = useState<DbProfile[]>([]);
+  const [loadingRooms, setLoadingRooms] = useState(true);
+
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [inputValue, setInputValue] = useState('');
   const [pendingImage, setPendingImage] = useState<string | undefined>();
   const [pendingMediaType, setPendingMediaType] = useState<'image' | 'video'>('image');
   const [modalMode, setModalMode] = useState<ModalMode>(null);
   const [searchQuery, setSearchQuery] = useState('');
-  // Sidebar tab: 'rooms' (channels and chats) | 'members' (online list)
   const [sidebarTab, setSidebarTab] = useState<'rooms' | 'members'>('rooms');
   const [replyTo, setReplyTo] = useState<Message | null>(null);
+  const [forwardMsg, setForwardMsg] = useState<Message | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const videoInputRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -252,116 +350,144 @@ export default function ClientApp() {
   // Auth via Supabase
   const { user: authUser, loading: authLoading } = useAuth();
 
-  // Sync auth user with state.user
+  // Sync auth user with our `user` state
   useEffect(() => {
     if (authUser) {
-      setState(prev => {
-        if (prev.user && prev.user.id === authUser.id && prev.user.name === authUser.name) {
-          return prev;
-        }
+      setUser(prev => {
+        if (prev && prev.id === authUser.id && prev.name === authUser.name) return prev;
         return {
-          ...prev,
-          user: {
-            id: authUser.id,
-            name: authUser.name,
-            role: authUser.role,
-            avatar: authUser.avatar,
-          },
+          id: authUser.id,
+          name: authUser.name,
+          role: authUser.role,
+          avatar: authUser.avatar,
+          email: authUser.email,
         };
       });
     } else if (!authLoading) {
-      setState(prev => prev.user ? { ...prev, user: null } : prev);
+      setUser(null);
     }
   }, [authUser, authLoading]);
 
-  // WebSocket-хук для реального времени
-  const { socket, isConnected, onlineMembers } = useSocket({ user: state.user });
+  // WebSocket-хук для реального времени (presence, optional broadcast)
+  const { socket, isConnected, onlineMembers } = useSocket({ user });
 
+  // Persist UI prefs only
   useEffect(() => {
-    saveState(state);
-  }, [state]);
+    savePrefs({ active, anon });
+  }, [active, anon]);
 
+  // Auto-scroll to bottom on new messages / room switch
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [state.rooms, state.active]);
+  }, [rooms, active]);
 
   // ===========================================================================
-  // WebSocket: подписка на входящие события
+  // Load rooms + profiles from Supabase once user is logged in
   // ===========================================================================
-  // Ref для отслеживания уже обработанных сообщений (анти-дублирование)
+  const refreshRooms = useCallback(async () => {
+    if (!user) return;
+    try {
+      const [dbRooms, dbProfiles] = await Promise.all([loadRooms(user.id), loadProfiles()]);
+      setProfiles(dbProfiles);
+      const appRooms = dbRooms.map(r => {
+        const base = dbRoomToApp(r, dbProfiles);
+        return resolveDmName(base, user.id, dbProfiles);
+      });
+      setRooms(appRooms);
+      // If no active room yet, pick the first channel
+      setActive(prev => {
+        if (prev && appRooms.some(r => r.id === prev)) return prev;
+        return appRooms[0]?.id ?? '';
+      });
+    } catch (e) {
+      console.warn('Failed to load rooms:', e);
+    } finally {
+      setLoadingRooms(false);
+    }
+  }, [user]);
+
+  useEffect(() => {
+    if (user) refreshRooms();
+    else { setRooms([]); setProfiles([]); setLoadingRooms(false); }
+  }, [user, refreshRooms]);
+
+  // Subscribe to room list changes (new rooms, deleted rooms)
+  useEffect(() => {
+    if (!user) return;
+    const unsub = subscribeToRooms(() => { refreshRooms(); });
+    return unsub;
+  }, [user, refreshRooms]);
+
+  // ===========================================================================
+  // Load messages for the active room + subscribe to realtime inserts
+  // ===========================================================================
+  useEffect(() => {
+    if (!active || !user) return;
+    let cancelled = false;
+    (async () => {
+      const dbMsgs = await loadMessages(active);
+      if (cancelled) return;
+      const appMsgs = dbMsgs.map(dbMsgToApp);
+      setRooms(prev => prev.map(r => r.id === active ? { ...r, messages: appMsgs } : r));
+      // Load pin for this room
+      const pin = await loadPin(active);
+      if (cancelled) return;
+      setPinned(pin ? { room: active, text: pin.text, ts: pin.ts } : null);
+    })();
+    const unsub = subscribeToRoomMessages(
+      active,
+      (dbMsg) => {
+        // Anticipate own messages by id — they were already added locally
+        const appMsg = dbMsgToApp(dbMsg);
+        if (appMsg.authorId === user.id) {
+          // Already added optimistically in sendMessage; just update id if needed
+          return;
+        }
+        setRooms(prev => prev.map(r =>
+          r.id === active ? { ...r, messages: [...r.messages, appMsg] } : r,
+        ));
+      },
+      (msgId) => {
+        setRooms(prev => prev.map(r =>
+          r.id === active ? { ...r, messages: r.messages.filter(m => m.id !== msgId) } : r,
+        ));
+      },
+    );
+    // Also subscribe to pin changes
+    const unsubPin = subscribeToPin(active, async () => {
+      const pin = await loadPin(active);
+      setPinned(pin ? { room: active, text: pin.text, ts: pin.ts } : null);
+    });
+    return () => { cancelled = true; unsub(); unsubPin(); };
+  }, [active, user]);
+
+  // ===========================================================================
+  // Ably broadcast handlers (kept for online members; messages now via Supabase realtime)
+  // ===========================================================================
   const processedMsgIds = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     if (!socket) return;
-
-    const onMessageNew = (payload: { roomId: string; message: Message }) => {
-      if (!payload?.message) return;
-      const msg = payload.message;
-      // Анти-дублирование: пропускаем если уже обработали это сообщение
-      if (processedMsgIds.current.has(msg.id)) return;
-      processedMsgIds.current.add(msg.id);
-      // Не дублируем своё же сообщение (уже добавлено локально в sendMessage)
-      if (msg.authorId === state.user?.id) return;
-      setState(prev => ({
-        ...prev,
-        rooms: prev.rooms.map(r =>
-          r.id === payload.roomId
-            ? { ...r, messages: [...r.messages, msg] }
-            : r,
-        ),
+    const onPollNew = (payload: unknown) => {
+      const p = payload as { poll?: Poll };
+      if (!p?.poll) return;
+      setPolls(prev => prev.find(x => x.id === p.poll!.id) ? prev : [...prev, p.poll!]);
+    };
+    const onPollVote = (payload: unknown) => {
+      const p = payload as { pollId?: string; optionIndex?: number; voterId?: string };
+      if (!p?.pollId || !p.voterId) return;
+      setPolls(prev => prev.map(x => {
+        if (x.id !== p.pollId) return x;
+        if (x.options.some(o => o.votes.includes(p.voterId!))) return x;
+        return { ...x, options: x.options.map((o, i) =>
+          i === p.optionIndex ? { ...o, votes: [...o.votes, p.voterId!] } : o) };
       }));
     };
-
-    const onPollNew = (payload: { poll: Poll }) => {
-      if (!payload?.poll) return;
-      setState(prev => ({
-        ...prev,
-        polls: prev.polls.find(p => p.id === payload.poll.id)
-          ? prev.polls
-          : [...prev.polls, payload.poll],
-      }));
-    };
-
-    const onPollVote = (payload: { pollId: string; optionIndex: number; voterId: string }) => {
-      if (!payload?.pollId) return;
-      setState(prev => ({
-        ...prev,
-        polls: prev.polls.map(p => {
-          if (p.id !== payload.pollId) return p;
-          if (p.options.some(o => o.votes.includes(payload.voterId))) return p;
-          return {
-            ...p,
-            options: p.options.map((o, i) =>
-              i === payload.optionIndex
-                ? { ...o, votes: [...o.votes, payload.voterId] }
-                : o,
-            ),
-          };
-        }),
-      }));
-    };
-
-    const onPinUpdate = (payload: { pinned: Pinned | null }) => {
-      setState(prev => ({ ...prev, pinned: payload.pinned ?? null }));
-    };
-
-    const onRoomUpdate = () => {
-      // Уведомляем пользователя что список комнат мог измениться
-      toast('Room list updated');
-    };
-
-    socket.on('message:new', onMessageNew);
     socket.on('poll:new', onPollNew);
     socket.on('poll:vote', onPollVote);
-    socket.on('pin:update', onPinUpdate);
-    socket.on('room:update', onRoomUpdate);
-
     return () => {
-      socket.off('message:new', onMessageNew);
       socket.off('poll:new', onPollNew);
       socket.off('poll:vote', onPollVote);
-      socket.off('pin:update', onPinUpdate);
-      socket.off('room:update', onRoomUpdate);
     };
   }, [socket]);
 
@@ -369,132 +495,268 @@ export default function ClientApp() {
   // Auth
   // ===========================================================================
 
-  const handleJoin = async (code: string, name: string): Promise<boolean> => {
-    try {
-      const res = await fetch('/api/join', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ code, name }),
-      });
-      const data = await res.json();
-      if (!res.ok || !data.ok) {
-        toast.error(data.error || 'Login error');
-        return false;
-      }
-      const user: User = { id: uid('u'), name: data.user.name, role: data.user.role };
-      setState(prev => ({ ...prev, user }));
-      setShowJoin(false);
-      toast.success(`Welcome, ${user.name}!`);
-      return true;
-    } catch {
-      toast.error('Network unavailable');
-      return false;
-    }
-  };
-
   const handleLogout = async () => {
-    // Supabase signOut через useAuth
     try {
       const { supabase } = await import('@/lib/supabase');
       if (supabase) await supabase.auth.signOut();
     } catch {}
-    setState(prev => ({ ...prev, user: null }));
-    toast('Signed out');
+    setUser(null);
+    setRooms([]);
+    setPolls([]);
+    setAnonQs([]);
+    setPinned(null);
+    setActive('');
+    toast(t('auth.signedOut'));
   };
 
   // ===========================================================================
   // Actions
   // ===========================================================================
 
-  const activeRoom = useMemo(() => state.rooms.find(r => r.id === state.active) ?? state.rooms[0], [state.rooms, state.active]);
+  const activeRoom = useMemo(() => rooms.find(r => r.id === active) ?? rooms[0], [rooms, active]);
 
-  const sendMessage = () => {
-    if (!state.user || !activeRoom) return;
+  const sendMessage = async () => {
+    if (!user || !activeRoom) return;
     const cleanText = sanitizeText(inputValue, MAX_MSG_LEN);
     if (!cleanText && !pendingImage) return;
-    const msg: Message = {
-      id: uid('m'),
-      authorId: state.user.id,
-      authorName: state.user.name,
-      role: state.user.role,
+
+    // Encode reply/forward metadata into text prefix
+    const meta: { reply?: { msgId: string; snippet: string }; fwd?: { fromName: string; snippet: string } } = {};
+    if (replyTo) {
+      meta.reply = {
+        msgId: replyTo.id,
+        snippet: (replyTo.text || (replyTo.image ? '[attachment]' : '')).slice(0, 80),
+      };
+    }
+    if (forwardMsg) {
+      meta.fwd = {
+        fromName: forwardMsg.authorName,
+        snippet: (forwardMsg.text || (forwardMsg.image ? '[attachment]' : '')).slice(0, 80),
+      };
+    }
+    const encodedText = encodeMsgText(cleanText, Object.keys(meta).length ? meta : undefined);
+
+    // Optimistic local insert with a temp id
+    const tempId = `temp_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    const optimisticMsg: Message = {
+      id: tempId,
+      authorId: user.id,
+      authorName: user.name,
+      role: user.role,
       text: cleanText,
       ts: Date.now(),
-      anon: state.anon,
+      anon,
       image: safeDataUrl(pendingImage),
       mediaType: pendingMediaType,
+      reply: meta.reply,
+      fwd: meta.fwd,
     };
-    setState(prev => ({
-      ...prev,
-      rooms: prev.rooms.map(r =>
-        r.id === activeRoom.id ? { ...r, messages: [...r.messages, msg] } : r,
-      ),
-      anon: false,
-    }));
-    // Broadcast via Ably
-    socket?.emit('message:new', { roomId: activeRoom.id, message: msg });
+    setRooms(prev => prev.map(r =>
+      r.id === activeRoom.id ? { ...r, messages: [...r.messages, optimisticMsg] } : r,
+    ));
+
+    // Encode image: prefix with 'video:' for videos so DB storage is unambiguous
+    let dbImage = safeDataUrl(pendingImage);
+    if (dbImage && pendingMediaType === 'video') {
+      dbImage = `video:${dbImage}`;
+    }
+
+    // Insert into Supabase
+    const inserted = await insertMessage({
+      room_id: activeRoom.id,
+      author_id: user.id,
+      author_name: user.name,
+      author_role: user.role,
+      text: encodedText,
+      image: dbImage ?? null,
+      is_anonymous: anon,
+    });
+
+    if (inserted) {
+      // Replace optimistic message with the real one (by matching position+text)
+      const realMsg = dbMsgToApp(inserted);
+      setRooms(prev => prev.map(r => {
+        if (r.id !== activeRoom.id) return r;
+        const msgs = [...r.messages];
+        // Replace the temp message at the end if it matches
+        const idx = msgs.findIndex(m => m.id === tempId);
+        if (idx >= 0) msgs[idx] = realMsg;
+        else msgs.push(realMsg);
+        return { ...r, messages: msgs };
+      }));
+    } else {
+      toast.error('Failed to send message');
+      // Remove optimistic on failure
+      setRooms(prev => prev.map(r =>
+        r.id === activeRoom.id ? { ...r, messages: r.messages.filter(m => m.id !== tempId) } : r,
+      ));
+    }
+
     setInputValue('');
     setPendingImage(undefined);
     setPendingMediaType('image');
     setReplyTo(null);
+    setForwardMsg(null);
+    setAnon(false);
   };
 
-  const toggleAnon = () => setState(prev => ({ ...prev, anon: !prev.anon }));
+  const toggleAnon = () => setAnon(prev => !prev);
 
-  const deleteRoom = (id: string) => {
-    setState(prev => ({
-      ...prev,
-      rooms: prev.rooms.filter(r => r.id !== id),
-      active: prev.active === id ? 'g_main' : prev.active,
-    }));
-    toast('Room deleted');
+  const deleteRoom = async (id: string) => {
+    // For DM/group rooms, only the creator can delete via API; for channels, only admin
+    // We attempt deletion; RLS allows authenticated to delete any room (v1 schema is permissive)
+    try {
+      const { supabase } = await import('@/lib/supabase');
+      await supabase.from('rooms').delete().eq('id', id);
+      setRooms(prev => prev.filter(r => r.id !== id));
+      if (active === id) setActive(rooms[0]?.id ?? '');
+      toast(t('room.deleted'));
+    } catch (e) {
+      toast.error('Failed to delete room');
+    }
   };
 
-  const createRoom = (name: string, about: string, category: string, kind: RoomKind) => {
+  const createRoom = async (name: string, about: string, category: string, kind: RoomKind) => {
+    if (!user) return;
     const cleanName = sanitizeText(name, 32);
     if (!cleanName) {
-      toast.error('Введите название');
+      toast.error(t('room.enterName'));
       return;
     }
-    const newRoom: Room = {
-      id: uid(kind === 'channel' ? 'c' : 'g'),
-      name: cleanName,
-      kind,
-      category,
-      about: sanitizeText(about, MAX_ABOUT_LEN),
-      messages: [],
-    };
-    setState(prev => ({ ...prev, rooms: [...prev.rooms, newRoom] }));
-    toast.success(kind === 'channel' ? `Channel «${cleanName}» created` : `Chat «${cleanName}» created`);
+    try {
+      const { supabase } = await import('@/lib/supabase');
+      const { data, error } = await supabase
+        .from('rooms')
+        .insert({
+          name: cleanName,
+          kind,
+          category,
+          about: sanitizeText(about, MAX_ABOUT_LEN) || null,
+          created_by: user.id,
+        })
+        .select()
+        .single();
+      if (error || !data) {
+        toast.error('Failed to create room');
+        return;
+      }
+      // Realtime subscription will refresh the room list, but we also add manually for snappiness
+      const newRoom = dbRoomToApp(data as DbRoom, profiles);
+      setRooms(prev => [...prev, newRoom]);
+      setActive(data.id);
+      toast.success(kind === 'channel' ? t('room.channelCreated') : t('room.chatCreated'));
+    } catch {
+      toast.error('Failed to create room');
+    }
   };
 
-  const pinMessage = (text: string) => {
-    if (!activeRoom) return;
+  /** Start a DM with another user (creates room if needed, then switches to it). */
+  const startDm = async (otherUserId: string) => {
+    if (!user) return;
+    if (otherUserId === user.id) {
+      toast.error("Can't DM yourself");
+      return;
+    }
+    const otherProfile = profiles.find(p => p.id === otherUserId);
+    if (!otherProfile) {
+      toast.error('User not found');
+      return;
+    }
+    const dmRoom = await findOrCreateDm(user.id, otherUserId, otherProfile.name, user.name);
+    if (!dmRoom) {
+      toast.error('Failed to start DM');
+      return;
+    }
+    // Refresh rooms (realtime will fire, but we also add manually for snappiness)
+    const appRoom = resolveDmName(dbRoomToApp(dmRoom, profiles), user.id, profiles);
+    setRooms(prev => prev.some(r => r.id === dmRoom.id) ? prev : [...prev, appRoom]);
+    setActive(dmRoom.id);
+    setSidebarOpen(false);
+    setSidebarTab('rooms');
+    toast.success(t('room.dmCreated'));
+  };
+
+  /** Create a group chat with the given name and member IDs. */
+  const createGroup = async (name: string, memberIds: string[]) => {
+    if (!user) return;
+    const cleanName = sanitizeText(name, 64);
+    if (!cleanName) {
+      toast.error(t('room.enterName'));
+      return;
+    }
+    if (memberIds.length === 0) {
+      toast.error('Select at least one member');
+      return;
+    }
+    const groupRoom = await apiCreateGroup(cleanName, memberIds, user.id);
+    if (!groupRoom) {
+      toast.error('Failed to create group');
+      return;
+    }
+    const appRoom = dbRoomToApp(groupRoom, profiles);
+    setRooms(prev => [...prev, appRoom]);
+    setActive(groupRoom.id);
+    setModalMode(null);
+    toast.success(t('room.groupCreated'));
+  };
+
+  /** Forward the current `forwardMsg` to the given room. */
+  const forwardToRoom = async (roomId: string) => {
+    if (!user || !forwardMsg) return;
+    const snippet = (forwardMsg.text || (forwardMsg.image ? '[attachment]' : '')).slice(0, 80);
+    const fwdText = encodeMsgText('', { fwd: { fromName: forwardMsg.authorName, snippet } });
+    // If the original had an image, copy it
+    let dbImage = forwardMsg.image ? safeDataUrl(forwardMsg.image) ?? null : null;
+    if (dbImage && forwardMsg.mediaType === 'video') dbImage = `video:${dbImage}`;
+    const inserted = await insertMessage({
+      room_id: roomId,
+      author_id: user.id,
+      author_name: user.name,
+      author_role: user.role,
+      text: fwdText || ' ',
+      image: dbImage,
+      is_anonymous: false,
+    });
+    if (inserted) {
+      toast.success(t('msg.forwarded'));
+    } else {
+      toast.error('Forward failed');
+    }
+    setForwardMsg(null);
+    setModalMode(null);
+  };
+
+  const pinMessage = async (text: string) => {
+    if (!activeRoom || !user) return;
     const clean = sanitizeText(text, 500);
     if (!clean) {
       toast.error('Enter text');
       return;
     }
-    const pinned: Pinned = { room: activeRoom.id, text: clean, ts: Date.now() };
-    setState(prev => ({ ...prev, pinned }));
-    socket?.emit('pin:update', { pinned });
-    toast('Message pinned');
+    const ok = await pinMessageDb(activeRoom.id, clean, user.id);
+    if (ok) {
+      setPinned({ room: activeRoom.id, text: clean, ts: Date.now() });
+      toast.success(t('room.pinCreated'));
+    } else {
+      toast.error('Failed to pin');
+    }
   };
 
-  const unpin = () => {
-    setState(prev => ({ ...prev, pinned: null }));
-    socket?.emit('pin:update', { pinned: null });
-    toast('Pin removed');
+  const unpin = async () => {
+    if (!activeRoom) return;
+    const ok = await unpinDb(activeRoom.id);
+    if (ok) {
+      setPinned(null);
+      toast(t('room.pinRemoved'));
+    }
   };
 
   const createPoll = (q: string, optionsArr: string[]) => {
-    if (!activeRoom || !state.user) return;
+    if (!activeRoom || !user) return;
     const cleanQ = sanitizeText(q, 200);
-    const opts = optionsArr
-      .map(s => sanitizeText(s, 100))
-      .filter(Boolean)
-      .slice(0, 8);
+    const opts = optionsArr.map(s => sanitizeText(s, 100)).filter(Boolean).slice(0, 8);
     if (!cleanQ || opts.length < 2) {
-      toast.error('Нужен вопрос и минимум 2 варианта');
+      toast.error('Need a question and at least 2 options');
       return;
     }
     const poll: Poll = {
@@ -503,79 +765,95 @@ export default function ClientApp() {
       q: cleanQ,
       options: opts.map(t => ({ t, votes: [] })),
       ts: Date.now(),
-      authorId: state.user.id,
+      authorId: user.id,
     };
-    setState(prev => ({ ...prev, polls: [...prev.polls, poll] }));
+    setPolls(prev => [...prev, poll]);
     socket?.emit('poll:new', { poll });
     toast.success('Poll published');
   };
 
   const votePoll = (pollId: string, optIdx: number) => {
-    if (!state.user) return;
-    setState(prev => ({
-      ...prev,
-      polls: prev.polls.map(p => {
-        if (p.id !== pollId) return p;
-        if (p.options.some(o => o.votes.includes(state.user!.id))) return p;
-        return {
-          ...p,
-          options: p.options.map((o, i) =>
-            i === optIdx ? { ...o, votes: [...o.votes, state.user!.id] } : o,
-          ),
-        };
-      }),
+    if (!user) return;
+    setPolls(prev => prev.map(p => {
+      if (p.id !== pollId) return p;
+      if (p.options.some(o => o.votes.includes(user.id))) return p;
+      return { ...p, options: p.options.map((o, i) =>
+        i === optIdx ? { ...o, votes: [...o.votes, user.id] } : o) };
     }));
-    socket?.emit('poll:vote', { pollId, optionIndex: optIdx, voterId: state.user.id });
+    socket?.emit('poll:vote', { pollId, optionIndex: optIdx, voterId: user.id });
   };
 
   const askAnon = (q: string) => {
-    if (!activeRoom || !state.user) return;
+    if (!activeRoom || !user) return;
     const cleanQ = sanitizeText(q, 300);
-    if (!cleanQ) {
-      toast.error('Enter a question');
-      return;
-    }
+    if (!cleanQ) { toast.error('Enter a question'); return; }
     const aq: AnonQuestion = {
       id: uid('a'),
       room: activeRoom.id,
       q: cleanQ,
       answers: [],
       answered: false,
-      authorId: state.user.id,
+      authorId: user.id,
     };
-    setState(prev => ({ ...prev, anonQs: [...prev.anonQs, aq] }));
+    setAnonQs(prev => [...prev, aq]);
     toast.success('Anonymous question sent');
   };
 
   const answerAnon = (aqId: string, text: string) => {
-    if (!state.user) return;
+    if (!user) return;
     const clean = sanitizeText(text, 500);
     if (!clean) return;
-    setState(prev => ({
-      ...prev,
-      anonQs: prev.anonQs.map(q =>
-        q.id === aqId
-          ? { ...q, answers: [...q.answers, { text: clean, ts: Date.now() }], answered: true }
-          : q,
-      ),
-    }));
+    setAnonQs(prev => prev.map(q =>
+      q.id === aqId
+        ? { ...q, answers: [...q.answers, { text: clean, ts: Date.now() }], answered: true }
+        : q,
+    ));
     toast.success('Answer sent anonymously');
   };
 
-  const updateProfile = (name: string, role: Role, avatar?: string) => {
-    if (!state.user) return;
+  const updateProfile = async (name: string, role: Role, avatar?: string) => {
+    if (!user) return;
     const cleanName = sanitizeText(name, MAX_NAME_LEN);
-    if (!cleanName) {
-      toast.error('Name cannot be empty');
-      return;
+    if (!cleanName) { toast.error('Name cannot be empty'); return; }
+    const cleanAvatar = safeDataUrl(avatar, 100_000);
+    // Update Supabase profile
+    try {
+      const { supabase } = await import('@/lib/supabase');
+      await supabase.from('profiles').update({
+        name: cleanName,
+        role,
+        avatar: cleanAvatar ?? null,
+      }).eq('id', user.id);
+    } catch (e) {
+      console.warn('Profile update failed:', e);
     }
-    setState(prev => ({
-      ...prev,
-      user: prev.user
-        ? { ...prev.user, name: cleanName, role, avatar: safeDataUrl(avatar, 100_000) }
-        : prev.user,
-    }));
+    setUser(prev => prev ? { ...prev, name: cleanName, role, avatar: cleanAvatar } : prev);
+    // Also update profiles state so DM names reflect the change
+    setProfiles(prev => prev.map(p => p.id === user.id ? { ...p, name: cleanName, role, avatar: cleanAvatar ?? null } : p));
     toast.success('Profile updated');
+  };
+
+  /** Delete a message (only own messages allowed by RLS). */
+  const deleteMessage = async (msg: Message) => {
+    // Optimistic remove
+    setRooms(prev => prev.map(r =>
+      r.id === (activeRoom?.id ?? '')
+        ? { ...r, messages: r.messages.filter(m => m.id !== msg.id) }
+        : r,
+    ));
+    // If it's a temp message (failed to insert), nothing to delete server-side
+    if (msg.id.startsWith('temp_')) return;
+    const ok = await apiDeleteMessage(msg.id);
+    if (!ok) {
+      toast.error('Failed to delete (only your own messages can be deleted)');
+      // Re-fetch to restore
+      if (activeRoom) {
+        const dbMsgs = await loadMessages(activeRoom.id);
+        setRooms(prev => prev.map(r => r.id === activeRoom.id ? { ...r, messages: dbMsgs.map(dbMsgToApp) } : r));
+      }
+    } else {
+      toast(t('msg.deleted'));
+    }
   };
 
   const handleAttach = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -661,15 +939,15 @@ export default function ClientApp() {
   }
 
   // Если нет пользователя — показываем AuthScreen
-  if (!state.user) {
+  if (!user) {
     return <AuthScreen onSuccess={() => {}} />;
   }
 
-  const isAdmin = state.user.role === 'admin';
-  const pinned = state.pinned && activeRoom && state.pinned.room === activeRoom.id ? state.pinned : null;
+  const isAdmin = user.role === 'admin';
+  const activePinned = pinned && activeRoom && pinned.room === activeRoom.id ? pinned : null;
   const items = activeRoom?.messages ?? [];
-  const roomPolls = state.polls.filter(p => activeRoom && p.room === activeRoom.id);
-  const roomAnonQs = state.anonQs.filter(q => !q.answered && activeRoom && q.room === activeRoom.id);
+  const roomPolls = polls.filter(p => activeRoom && p.room === activeRoom.id);
+  const roomAnonQs = anonQs.filter(q => !q.answered && activeRoom && q.room === activeRoom.id);
 
   // Группировка сообщений по дням
   const groupedItems: { date: string; items: Message[] }[] = [];
@@ -684,63 +962,83 @@ export default function ClientApp() {
     }
   }
 
-  // Фильтрация комнат по поиску
-  const filteredRooms = state.rooms.filter(r =>
+  // Фильтрация комнат по поиску + по category (DM / Group / Channels)
+  const filteredRooms = rooms.filter(r =>
     !searchQuery || r.name.toLowerCase().includes(searchQuery.toLowerCase()),
   );
   const channels = filteredRooms.filter(r => r.kind === 'channel');
-  const chats = filteredRooms.filter(r => r.kind === 'chat');
+  // DM rooms: category === 'dm'
+  const dms = filteredRooms.filter(r => r.category === 'dm');
+  // Group rooms: category === 'group'
+  const groups = filteredRooms.filter(r => r.category === 'group');
+  // Plain chats (kind='chat', category is general/study/etc — not dm/group)
+  const chats = filteredRooms.filter(r => r.kind === 'chat' && r.category !== 'dm' && r.category !== 'group');
 
   return (
     <TooltipProvider delayDuration={300}>
       <div className="h-[100dvh] flex overflow-hidden">
         <Sidebar
-          rooms={state.rooms}
+          rooms={rooms}
           channels={channels}
           chats={chats}
-          active={state.active}
+          dms={dms}
+          groups={groups}
+          active={active}
           searchQuery={searchQuery}
           onSearchChange={setSearchQuery}
           onSelect={(id) => {
-            setState(prev => ({ ...prev, active: id }));
+            setActive(id);
             setSidebarOpen(false);
           }}
           onAddChannel={() => setModalMode('addChannel')}
-          onDeleteRoom={isAdmin ? deleteRoom : undefined}
+          onAddGroup={() => setModalMode('createGroup')}
+          onDeleteRoom={deleteRoom}
           isAdmin={isAdmin}
           open={sidebarOpen}
           onClose={() => setSidebarOpen(false)}
-          user={state.user}
+          user={user}
           onLogout={handleLogout}
           onProfile={() => setModalMode('profile')}
           onlineMembers={onlineMembers}
           isConnected={isConnected}
           activeTab={sidebarTab}
           onTabChange={setSidebarTab}
+          onMemberClick={startDm}
+          profiles={profiles}
         />
 
         <main className="flex-1 flex flex-col min-w-0">
           {/* Top bar */}
           <header className="glass border-b border-border flex items-center gap-2 px-3 sm:px-4 h-14 shrink-0">
-            <Button variant="ghost" size="icon" className="md:hidden" onClick={() => setSidebarOpen(true)} aria-label="Меню">
+            <Button variant="ghost" size="icon" className="md:hidden" onClick={() => setSidebarOpen(true)} aria-label="Menu">
               <MenuIcon className="size-5" />
             </Button>
             {activeRoom && (
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2">
-                  {activeRoom.kind === 'channel' ? (
+                  {activeRoom.category === 'dm' ? (
+                    <UserIcon className="size-4 text-primary shrink-0" />
+                  ) : activeRoom.category === 'group' ? (
+                    <Users className="size-4 text-primary shrink-0" />
+                  ) : activeRoom.kind === 'channel' ? (
                     <Megaphone className="size-4 text-primary shrink-0" />
                   ) : (
                     <MessageSquare className="size-4 text-primary shrink-0" />
                   )}
                   <span className="font-semibold truncate">{activeRoom.name}</span>
                   <Badge variant="outline" className="text-[10px] uppercase tracking-wide hidden sm:inline-flex">
-                    {activeRoom.kind === 'channel' ? 'Channel' : 'Chat'}
+                    {activeRoom.category === 'dm' ? 'DM' :
+                     activeRoom.category === 'group' ? 'Group' :
+                     activeRoom.kind === 'channel' ? 'Channel' : 'Chat'}
                   </Badge>
                 </div>
-                {activeRoom.about && (
+                {activeRoom.category === 'group' && activeRoom.groupMembers ? (
+                  <div className="text-xs text-muted-foreground truncate">
+                    {activeRoom.groupMembers.length} members
+                  </div>
+                ) : activeRoom.about && activeRoom.category !== 'dm' ? (
                   <div className="text-xs text-muted-foreground truncate">{activeRoom.about}</div>
-                )}
+                ) : null}
               </div>
             )}
             <DropdownMenu>
@@ -750,34 +1048,35 @@ export default function ClientApp() {
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-52 dropdown-in">
-                {pinned && (
+                {activePinned && (
                   <DropdownMenuItem onClick={unpin}>
-                    <X className="size-4 mr-2" /> Unpin
+                    <X className="size-4 mr-2" /> {t('room.unpin')}
                   </DropdownMenuItem>
                 )}
                 <DropdownMenuItem onClick={() => setModalMode('pin')}>
-                  <Pin className="size-4 mr-2" /> Pin
+                  <Pin className="size-4 mr-2" /> {t('room.pin')}
                 </DropdownMenuItem>
                 <DropdownMenuItem onClick={() => setModalMode('poll')}>
-                  <BarChart3 className="size-4 mr-2" /> Create poll
+                  <BarChart3 className="size-4 mr-2" /> {t('poll.new')}
                 </DropdownMenuItem>
                 <DropdownMenuItem onClick={() => setModalMode('anon')}>
-                  <EyeOff className="size-4 mr-2" /> Anonymous question
+                  <EyeOff className="size-4 mr-2" /> {t('anon.new')}
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem onClick={() => setModalMode('info')}>
                   <Info className="size-4 mr-2" /> Info
                 </DropdownMenuItem>
                 <DropdownMenuItem onClick={() => setModalMode('profile')}>
-                  <UserIcon className="size-4 mr-2" /> Profile
+                  <UserIcon className="size-4 mr-2" /> {t('nav.openProfile')}
                 </DropdownMenuItem>
-                {activeRoom?.kind === 'channel' && isAdmin && (
+                {/* Delete: channels for admin; DMs/groups for creator or admin */}
+                {activeRoom && (activeRoom.kind === 'channel' ? isAdmin : true) && (
                   <>
                     <DropdownMenuSeparator />
                     <DropdownMenuItem className="text-destructive" onClick={() => {
-                      if (confirm(`Delete channel «${activeRoom.name}»?`)) deleteRoom(activeRoom.id);
+                      if (confirm(`Delete «${activeRoom.name}»?`)) deleteRoom(activeRoom.id);
                     }}>
-                      <Trash2 className="size-4 mr-2" /> Delete channel
+                      <Trash2 className="size-4 mr-2" /> Delete
                     </DropdownMenuItem>
                   </>
                 )}
@@ -786,14 +1085,14 @@ export default function ClientApp() {
           </header>
 
           {/* Pinned banner */}
-          {pinned && (
+          {activePinned && (
             <div className="glass border-b border-border px-3 sm:px-4 py-2 flex items-start gap-2 text-sm slide-down">
               <Pin className="size-4 text-primary shrink-0 mt-0.5" />
               <div className="flex-1 min-w-0">
-                <span className="text-muted-foreground text-xs uppercase tracking-wide mr-2">Закреп</span>
-                <span className="break-words">{pinned.text}</span>
+                <span className="text-muted-foreground text-xs uppercase tracking-wide mr-2">{t('room.pinned')}</span>
+                <span className="break-words">{activePinned.text}</span>
               </div>
-              <Button variant="ghost" size="icon" className="size-6" onClick={unpin} aria-label="Unpin">
+              <Button variant="ghost" size="icon" className="size-6" onClick={unpin} aria-label={t('room.unpin')}>
                 <X className="size-3" />
               </Button>
             </div>
@@ -801,12 +1100,18 @@ export default function ClientApp() {
 
           {/* Messages */}
           <div className="flex-1 overflow-y-auto scroll-thin px-3 sm:px-4 py-4">
-            <div key={state.active} className="max-w-3xl mx-auto flex flex-col gap-3 room-switch">
-              {groupedItems.length === 0 && roomPolls.length === 0 && roomAnonQs.length === 0 && (
+            <div key={active} className="max-w-3xl mx-auto flex flex-col gap-3 room-switch">
+              {loadingRooms && (
+                <div className="text-center text-muted-foreground py-20 fade-in">
+                  <div className="size-8 mx-auto mb-3 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+                  <p className="text-sm">Loading…</p>
+                </div>
+              )}
+              {!loadingRooms && groupedItems.length === 0 && roomPolls.length === 0 && roomAnonQs.length === 0 && (
                 <div className="text-center text-muted-foreground py-20 fade-in">
                   <MessageSquare className="size-10 mx-auto mb-3 opacity-40" />
-                  <p className="text-sm font-medium">Nothing here yet</p>
-                  <p className="text-xs mt-1">Be the first to write or pin a message</p>
+                  <p className="text-sm font-medium">{t('room.empty')}</p>
+                  <p className="text-xs mt-1">{t('room.emptyHint')}</p>
                 </div>
               )}
 
@@ -824,22 +1129,13 @@ export default function ClientApp() {
                       <MessageItem
                         key={it.id}
                         msg={it}
-                        currentUserId={state.user!.id}
+                        currentUserId={user.id}
                         showHeader={showHeader}
                         onReply={(m) => setReplyTo(m)}
+                        onForward={(m) => { setForwardMsg(m); setModalMode('forward'); }}
                         onPin={() => setModalMode('pin')}
-                        onUnpin={pinned ? unpin : undefined}
-                        onDelete={(m) => {
-                          setState(prev => ({
-                            ...prev,
-                            rooms: prev.rooms.map(r =>
-                              r.id === activeRoom?.id
-                                ? { ...r, messages: r.messages.filter(msg => msg.id !== m.id) }
-                                : r,
-                            ),
-                          }));
-                          toast(t('msg.deleted'));
-                        }}
+                        onUnpin={activePinned ? unpin : undefined}
+                        onDelete={(m) => deleteMessage(m)}
                         onCopy={(text) => {
                           navigator.clipboard?.writeText(text);
                           toast(t('msg.copied'));
@@ -852,7 +1148,7 @@ export default function ClientApp() {
               ))}
 
               {activeRoom?.kind === 'chat' && roomPolls.map(p => (
-                <PollCard key={p.id} poll={p} currentUserId={state.user!.id} onVote={votePoll} />
+                <PollCard key={p.id} poll={p} currentUserId={user.id} onVote={votePoll} />
               ))}
 
               {activeRoom?.kind === 'chat' && roomAnonQs.map(q => (
@@ -876,6 +1172,20 @@ export default function ClientApp() {
                     <span className="text-muted-foreground truncate">{replyTo.text?.slice(0, 60) || '...'}</span>
                   </div>
                   <Button variant="ghost" size="icon" className="size-5 shrink-0" onClick={() => setReplyTo(null)}>
+                    <X className="size-3" />
+                  </Button>
+                </div>
+              )}
+              {/* Forward preview */}
+              {forwardMsg && (
+                <div className="mb-2 flex items-center gap-2 p-2 rounded-lg bg-muted/40 border border-border text-xs">
+                  <Forward className="size-3.5 text-primary shrink-0" />
+                  <div className="flex-1 min-w-0">
+                    <span className="text-muted-foreground">{t('msg.forwardingFrom')} </span>
+                    <span className="font-medium">{forwardMsg.authorName}: </span>
+                    <span className="text-muted-foreground truncate">{forwardMsg.text?.slice(0, 60) || '...'}</span>
+                  </div>
+                  <Button variant="ghost" size="icon" className="size-5 shrink-0" onClick={() => setForwardMsg(null)}>
                     <X className="size-3" />
                   </Button>
                 </div>
@@ -935,16 +1245,16 @@ export default function ClientApp() {
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <Button
-                      variant={state.anon ? 'secondary' : 'ghost'}
+                      variant={anon ? 'secondary' : 'ghost'}
                       size="icon"
-                      className={`shrink-0 ${state.anon ? 'text-primary border border-primary/40' : ''}`}
+                      className={`shrink-0 ${anon ? 'text-primary border border-primary/40' : ''}`}
                       onClick={toggleAnon}
                       aria-label={t('msg.anonymous')}
                     >
                       <EyeOff className="size-4" />
                     </Button>
                   </TooltipTrigger>
-                  <TooltipContent>{state.anon ? t('msg.anonModeOn') : t('msg.sendAnon')}</TooltipContent>
+                  <TooltipContent>{anon ? t('msg.anonModeOn') : t('msg.sendAnon')}</TooltipContent>
                 </Tooltip>
                 <Textarea
                   value={inputValue}
@@ -978,6 +1288,22 @@ export default function ClientApp() {
       {modalMode === 'addChannel' && (
         <AddRoomModal onClose={() => setModalMode(null)} onCreate={createRoom} />
       )}
+      {modalMode === 'createGroup' && (
+        <CreateGroupModal
+          onClose={() => setModalMode(null)}
+          onCreate={createGroup}
+          profiles={profiles}
+          currentUserId={user.id}
+        />
+      )}
+      {modalMode === 'forward' && forwardMsg && (
+        <ForwardModal
+          onClose={() => { setModalMode(null); setForwardMsg(null); }}
+          onForward={forwardToRoom}
+          rooms={rooms}
+          currentRoomId={activeRoom?.id}
+        />
+      )}
       {modalMode === 'pin' && (
         <PinModal onClose={() => setModalMode(null)} onPin={pinMessage} roomName={activeRoom?.name || ''} />
       )}
@@ -991,16 +1317,16 @@ export default function ClientApp() {
         <ProfileModal
           onClose={() => setModalMode(null)}
           onSave={updateProfile}
-          user={state.user}
+          user={user}
         />
       )}
       {modalMode === 'info' && activeRoom && (
         <InfoModal
           onClose={() => setModalMode(null)}
           room={activeRoom}
-          members={27}
+          members={activeRoom.groupMembers?.length ?? profiles.length}
           isAdmin={isAdmin}
-          onDelete={isAdmin && activeRoom.kind === 'channel' ? () => { deleteRoom(activeRoom.id); setModalMode(null); } : undefined}
+          onDelete={(activeRoom.kind === 'channel' ? isAdmin : true) ? () => { deleteRoom(activeRoom.id); setModalMode(null); } : undefined}
         />
       )}
     </TooltipProvider>
@@ -1008,18 +1334,21 @@ export default function ClientApp() {
 }
 
 // ============================================================================
-// Sidebar — текстовое меню
+// Sidebar — 3 sections: DMs / Groups / Channels (+ plain chats)
 // ============================================================================
 
 function Sidebar(props: {
   rooms: Room[];
   channels: Room[];
   chats: Room[];
+  dms: Room[];
+  groups: Room[];
   active: string;
   searchQuery: string;
   onSearchChange: (v: string) => void;
   onSelect: (id: string) => void;
   onAddChannel: () => void;
+  onAddGroup: () => void;
   onDeleteRoom?: (id: string) => void;
   isAdmin: boolean;
   open: boolean;
@@ -1031,11 +1360,13 @@ function Sidebar(props: {
   isConnected: boolean;
   activeTab: 'rooms' | 'members';
   onTabChange: (tab: 'rooms' | 'members') => void;
+  onMemberClick: (userId: string) => void;
+  profiles: DbProfile[];
 }) {
   const {
-    channels, chats, active, searchQuery, onSearchChange, onSelect, onAddChannel,
-    onDeleteRoom, isAdmin, open, onClose, user, onLogout, onProfile,
-    onlineMembers, isConnected, activeTab, onTabChange,
+    channels, chats, dms, groups, active, searchQuery, onSearchChange, onSelect, onAddChannel,
+    onAddGroup, onDeleteRoom, open, onClose, user, onLogout, onProfile,
+    onlineMembers, isConnected, activeTab, onTabChange, onMemberClick, profiles,
   } = props;
 
   return (
@@ -1115,24 +1446,19 @@ function Sidebar(props: {
               </div>
             </div>
 
-            {/* Rooms list */}
+            {/* Rooms list — 4 sections: DMs, Groups, Chats, Channels */}
             <div className="flex-1 overflow-y-auto scroll-thin p-2">
-              {/* Channels section */}
+              {/* DMs section */}
               <div className="flex items-center justify-between px-2 py-2">
                 <span className="text-xs uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
-                  <Megaphone className="size-3" /> Channels
+                  <UserIcon className="size-3" /> Direct
                 </span>
-                {isAdmin && (
-                  <Button variant="ghost" size="icon" className="size-6" onClick={onAddChannel} aria-label="Create channel">
-                    <Plus className="size-4" />
-                  </Button>
-                )}
               </div>
               <div className="flex flex-col gap-0.5 mb-3">
-                {channels.length === 0 && (
-                  <div className="text-xs text-muted-foreground px-3 py-2">No channels</div>
+                {dms.length === 0 && (
+                  <div className="text-xs text-muted-foreground px-3 py-2">Open a member's profile to start a DM</div>
                 )}
-                {channels.map(c => (
+                {dms.map(c => (
                   <RoomItem
                     key={c.id}
                     room={c}
@@ -1143,18 +1469,40 @@ function Sidebar(props: {
                 ))}
               </div>
 
-              {/* Chats section */}
+              {/* Groups section */}
+              <div className="flex items-center justify-between px-2 py-2">
+                <span className="text-xs uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+                  <Users className="size-3" /> Groups
+                </span>
+                <Button variant="ghost" size="icon" className="size-6" onClick={onAddGroup} aria-label="Create group">
+                  <Plus className="size-4" />
+                </Button>
+              </div>
+              <div className="flex flex-col gap-0.5 mb-3">
+                {groups.length === 0 && (
+                  <div className="text-xs text-muted-foreground px-3 py-2">No groups yet — click + to create one</div>
+                )}
+                {groups.map(c => (
+                  <RoomItem
+                    key={c.id}
+                    room={c}
+                    active={c.id === active}
+                    onClick={() => onSelect(c.id)}
+                    onDelete={onDeleteRoom}
+                  />
+                ))}
+              </div>
+
+              {/* Chats section (kind='chat' but not dm/group) */}
               <div className="flex items-center justify-between px-2 py-2">
                 <span className="text-xs uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
                   <MessageSquare className="size-3" /> Chats
                 </span>
-                {isAdmin && (
-                  <Button variant="ghost" size="icon" className="size-6" onClick={onAddChannel} aria-label="Create chat">
-                    <Plus className="size-4" />
-                  </Button>
-                )}
+                <Button variant="ghost" size="icon" className="size-6" onClick={onAddChannel} aria-label="Create chat">
+                  <Plus className="size-4" />
+                </Button>
               </div>
-              <div className="flex flex-col gap-0.5">
+              <div className="flex flex-col gap-0.5 mb-3">
                 {chats.length === 0 && (
                   <div className="text-xs text-muted-foreground px-3 py-2">No chats</div>
                 )}
@@ -1168,10 +1516,40 @@ function Sidebar(props: {
                   />
                 ))}
               </div>
+
+              {/* Channels section */}
+              <div className="flex items-center justify-between px-2 py-2">
+                <span className="text-xs uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+                  <Megaphone className="size-3" /> Channels
+                </span>
+                <Button variant="ghost" size="icon" className="size-6" onClick={onAddChannel} aria-label="Create channel">
+                  <Plus className="size-4" />
+                </Button>
+              </div>
+              <div className="flex flex-col gap-0.5">
+                {channels.length === 0 && (
+                  <div className="text-xs text-muted-foreground px-3 py-2">No channels</div>
+                )}
+                {channels.map(c => (
+                  <RoomItem
+                    key={c.id}
+                    room={c}
+                    active={c.id === active}
+                    onClick={() => onSelect(c.id)}
+                    onDelete={onDeleteRoom}
+                  />
+                ))}
+              </div>
             </div>
           </>
         ) : (
-          <MembersList members={onlineMembers} currentUserId={user.id} isConnected={isConnected} />
+          <MembersList
+            members={onlineMembers}
+            currentUserId={user.id}
+            isConnected={isConnected}
+            onMemberClick={onMemberClick}
+            profiles={profiles}
+          />
         )}
 
         {/* User footer — кликабельный профиль */}
@@ -1186,7 +1564,7 @@ function Sidebar(props: {
               <div className="text-sm font-medium truncate">{user.name}</div>
               <div className="text-xs text-muted-foreground flex items-center gap-1">
                 {user.role === 'admin' ? (
-                  <><Badge variant="secondary" className="text-[10px] px-1 py-0 h-3.5">АДМИН</Badge> admin privileges</>
+                  <><Badge variant="secondary" className="text-[10px] px-1 py-0 h-3.5">ADMIN</Badge> admin privileges</>
                 ) : (
                   'Member'
                 )}
@@ -1209,77 +1587,107 @@ function Sidebar(props: {
 }
 
 // ============================================================================
-// MembersList — реальный список онлайн-участников
+// MembersList — список участников (онлайн + все зарегистрированные)
 // ============================================================================
 
-function MembersList(props: { members: OnlineMember[]; currentUserId: string; isConnected: boolean }) {
-  const { members, currentUserId, isConnected } = props;
-  // Сортируем: админы сверху, потом по имени
-  const sorted = [...members].sort((a, b) => {
+function MembersList(props: {
+  members: OnlineMember[];
+  currentUserId: string;
+  isConnected: boolean;
+  onMemberClick: (userId: string) => void;
+  profiles: DbProfile[];
+}) {
+  const { members, currentUserId, isConnected, onMemberClick, profiles } = props;
+  // Merge online members with all profiles (so offline users are also clickable for DM)
+  const onlineIds = new Set(members.map(m => m.userId));
+  const allUsers = [
+    ...members.map(m => ({ id: m.userId, name: m.name, role: m.role as 'member' | 'admin', avatar: m.avatar, online: true })),
+    ...profiles
+      .filter(p => !onlineIds.has(p.id))
+      .map(p => ({ id: p.id, name: p.name, role: p.role, avatar: p.avatar ?? undefined, online: false })),
+  ];
+  // Sort: admins first, then alphabetically; current user last
+  const sorted = [...allUsers].sort((a, b) => {
+    if (a.id === currentUserId) return 1;
+    if (b.id === currentUserId) return -1;
     if (a.role === 'admin' && b.role !== 'admin') return -1;
     if (a.role !== 'admin' && b.role === 'admin') return 1;
-    return a.name.localeCompare(b.name, 'ru');
+    return a.name.localeCompare(b.name, 'en');
   });
 
   return (
     <div className="flex-1 overflow-y-auto scroll-thin p-2">
       <div className="px-2 py-2 flex items-center justify-between">
         <span className="text-xs uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
-          <Users className="size-3" /> Онлайн сейчас
+          <Users className="size-3" /> People
         </span>
-        <span className="text-xs text-muted-foreground tabular-nums">{members.length}</span>
+        <span className="text-xs text-muted-foreground tabular-nums">
+          {members.length} online · {allUsers.length} total
+        </span>
       </div>
 
       {!isConnected && (
-        <div className="px-3 py-4 text-center text-xs text-muted-foreground">
-          <WifiOff className="size-6 mx-auto mb-2 opacity-50" />
-          Connecting to server…
+        <div className="px-3 py-2 text-center text-xs text-muted-foreground">
+          <WifiOff className="size-5 mx-auto mb-1 opacity-50" />
+          Connecting…
         </div>
       )}
 
-      {isConnected && members.length === 0 && (
+      {sorted.length === 0 && (
         <div className="px-3 py-4 text-center text-xs text-muted-foreground">
           <Users className="size-6 mx-auto mb-2 opacity-50" />
-          Nobody online yet
+          Nobody here yet
         </div>
       )}
 
-      {sorted.map(m => {
-        const isMe = m.userId === currentUserId;
+      {sorted.map(u => {
+        const isMe = u.id === currentUserId;
         return (
-          <div
-            key={m.userId}
-            className="flex items-center gap-2 px-2 py-2 rounded-lg text-sm hover:bg-muted/40 transition-colors"
+          <button
+            key={u.id}
+            type="button"
+            disabled={isMe}
+            onClick={() => !isMe && onMemberClick(u.id)}
+            className={`w-full flex items-center gap-2 px-2 py-2 rounded-lg text-sm transition-colors text-left
+              ${isMe ? 'opacity-60 cursor-default' : 'hover:bg-muted/40 cursor-pointer'}`}
           >
             <div className="relative shrink-0">
-              <Avatar user={{ id: m.userId, name: m.name, avatar: m.avatar }} size={32} />
-              <span
-                className="absolute -bottom-0.5 -right-0.5 size-3 rounded-full bg-green-500 border-2 border-card pulse-ring"
-                aria-label="онлайн"
-              />
+              <Avatar user={{ id: u.id, name: u.name, avatar: u.avatar }} size={32} />
+              {u.online && (
+                <span
+                  className="absolute -bottom-0.5 -right-0.5 size-3 rounded-full bg-green-500 border-2 border-card pulse-ring"
+                  aria-label="online"
+                />
+              )}
             </div>
             <div className="min-w-0 flex-1">
               <div className="font-medium truncate">
-                {m.name}
-                {isMe && <span className="text-xs text-muted-foreground ml-1.5">(вы)</span>}
+                {u.name}
+                {isMe && <span className="text-xs text-muted-foreground ml-1.5">(you)</span>}
               </div>
               <div className="text-[11px] text-muted-foreground flex items-center gap-1">
-                {m.role === 'admin' && (
-                  <Badge variant="secondary" className="text-[9px] px-1 py-0 h-3">АДМИН</Badge>
+                {u.role === 'admin' && (
+                  <Badge variant="secondary" className="text-[9px] px-1 py-0 h-3">ADMIN</Badge>
                 )}
-                <span>online since {formatTime(m.joinedAt)}</span>
+                <span>{u.online ? 'online' : 'offline'}</span>
               </div>
             </div>
-          </div>
+            {!isMe && (
+              <MessageSquare className="size-3.5 text-muted-foreground shrink-0 opacity-50" />
+            )}
+          </button>
         );
       })}
     </div>
   );
 }
 
-function RoomItem(props: { room: Room; active: boolean; onClick: () => void; onDelete?: () => void; }) {
+function RoomItem(props: { room: Room; active: boolean; onClick: () => void; onDelete?: (id: string) => void; }) {
   const { room, active, onClick, onDelete } = props;
-  const Icon = room.kind === 'channel' ? Megaphone : MessageSquare;
+  const Icon = room.category === 'dm' ? UserIcon
+    : room.category === 'group' ? Users
+    : room.kind === 'channel' ? Megaphone
+    : MessageSquare;
   return (
     <div
       className={`group room-item flex items-center gap-2 px-2 py-2 rounded-lg cursor-pointer text-sm
@@ -1292,9 +1700,13 @@ function RoomItem(props: { room: Room; active: boolean; onClick: () => void; onD
       <Icon className={`size-4 shrink-0 ${active ? 'text-primary' : ''}`} />
       <div className="flex-1 min-w-0">
         <div className="truncate font-medium">{room.name}</div>
-        {room.about && (
+        {room.category === 'group' && room.groupMembers ? (
+          <div className="text-[11px] text-muted-foreground truncate">
+            {room.groupMembers.length} members
+          </div>
+        ) : room.about && room.category !== 'dm' ? (
           <div className="text-[11px] text-muted-foreground truncate">{room.about}</div>
-        )}
+        ) : null}
       </div>
       {onDelete && (
         <Button
@@ -1303,9 +1715,9 @@ function RoomItem(props: { room: Room; active: boolean; onClick: () => void; onD
           className="size-6 opacity-0 group-hover:opacity-100 shrink-0"
           onClick={(e) => {
             e.stopPropagation();
-            if (confirm(`Удалить «${room.name}»? Все сообщения пропадут.`)) onDelete();
+            if (confirm(`Delete «${room.name}»?`)) onDelete(room.id);
           }}
-          aria-label="Удалить"
+          aria-label="Delete"
         >
           <Trash2 className="size-3" />
         </Button>
@@ -1346,7 +1758,10 @@ function Avatar(props: { user: { id: string; name: string; avatar?: string }; si
 function MessageItem(props: { msg: Message; currentUserId: string; showHeader: boolean; onReply?: (msg: Message) => void; onPin?: () => void; onUnpin?: () => void; onDelete?: (msg: Message) => void; onForward?: (msg: Message) => void; onCopy?: (text: string) => void; t: (key: string) => string }) {
   const { msg, currentUserId, showHeader, onReply, onPin, onUnpin, onDelete, onForward, onCopy, t } = props;
   const mine = msg.authorId === currentUserId;
-  const safeImage = safeDataUrl(msg.image);
+  // The image field may carry a `video:` prefix to indicate a video attachment
+  const isVideo = !!msg.image && msg.image.startsWith('video:');
+  const rawImage = isVideo ? msg.image!.slice('video:'.length) : msg.image;
+  const safeImage = safeDataUrl(rawImage);
 
   return (
     <MessageContextMenu isOwn={mine} hasText={Boolean(msg.text)} onReply={onReply ? () => onReply(msg) : undefined} onPin={onPin} onUnpin={onUnpin} onDelete={onDelete ? () => onDelete(msg) : undefined} onForward={onForward ? () => onForward(msg) : undefined} onCopy={onCopy && msg.text ? () => onCopy(msg.text) : undefined} t={t}>
@@ -1371,7 +1786,7 @@ function MessageItem(props: { msg: Message; currentUserId: string; showHeader: b
               {msg.anon ? 'Anonymous' : msg.authorName}
             </span>
             {!msg.anon && msg.role === 'admin' && (
-              <Badge variant="secondary" className="text-[10px] px-1 py-0 h-3.5">АДМИН</Badge>
+              <Badge variant="secondary" className="text-[10px] px-1 py-0 h-3.5">ADMIN</Badge>
             )}
             <span className="text-muted-foreground">{formatTime(msg.ts)}</span>
           </div>
@@ -1381,8 +1796,37 @@ function MessageItem(props: { msg: Message; currentUserId: string; showHeader: b
             ${mine ? 'bg-primary text-primary-foreground ' + (showHeader ? 'rounded-tr-sm' : '')
                     : 'bg-card border border-border ' + (showHeader ? 'rounded-tl-sm' : '')}`}
         >
+          {/* Reply quote */}
+          {msg.reply && (
+            <div className={`mb-1.5 px-2 py-1 rounded-md text-xs border-l-2 ${
+              mine ? 'bg-primary-foreground/10 border-primary-foreground/60' : 'bg-muted/50 border-primary'
+            }`}>
+              <div className={`font-medium text-[10px] uppercase tracking-wide ${mine ? 'text-primary-foreground/80' : 'text-primary'}`}>
+                {t('msg.reply')}
+              </div>
+              <div className={`truncate ${mine ? 'text-primary-foreground/80' : 'text-muted-foreground'}`}>
+                {msg.reply.snippet}
+              </div>
+            </div>
+          )}
+          {/* Forward quote */}
+          {msg.fwd && (
+            <div className={`mb-1.5 px-2 py-1 rounded-md text-xs border-l-2 ${
+              mine ? 'bg-primary-foreground/10 border-primary-foreground/60' : 'bg-muted/50 border-amber-500'
+            }`}>
+              <div className={`font-medium text-[10px] uppercase tracking-wide flex items-center gap-1 ${mine ? 'text-primary-foreground/80' : 'text-amber-500'}`}>
+                <Forward className="size-2.5" /> {t('msg.forwardedFrom')}
+              </div>
+              <div className={`text-[10px] ${mine ? 'text-primary-foreground/70' : 'text-muted-foreground'}`}>
+                {msg.fwd.fromName}
+              </div>
+              <div className={`truncate ${mine ? 'text-primary-foreground/80' : 'text-muted-foreground'}`}>
+                {msg.fwd.snippet}
+              </div>
+            </div>
+          )}
           {msg.text && <p className="whitespace-pre-wrap">{msg.text}</p>}
-          {safeImage && msg.mediaType === 'video' ? (
+          {safeImage && isVideo ? (
             <video
               src={safeImage}
               controls
@@ -2046,6 +2490,10 @@ function InfoModal(props: {
   onDelete?: () => void;
 }) {
   const { room, members, isAdmin, onDelete } = props;
+  const roomType = room.category === 'dm' ? 'Direct message'
+    : room.category === 'group' ? 'Group'
+    : room.kind === 'channel' ? 'Channel'
+    : 'Chat';
   return (
     <ModalShell
       title={room.name}
@@ -2054,9 +2502,9 @@ function InfoModal(props: {
       footer={
         <>
           <Button variant="ghost" onClick={props.onClose}>Close</Button>
-          {room.kind === 'channel' && isAdmin && onDelete && (
+          {onDelete && (
             <Button variant="destructive" onClick={onDelete}>
-              <Trash2 className="size-4 mr-1" /> Delete channel
+              <Trash2 className="size-4 mr-1" /> Delete
             </Button>
           )}
         </>
@@ -2065,29 +2513,211 @@ function InfoModal(props: {
       <div className="space-y-3 text-sm">
         <div className="flex items-center justify-between">
           <span className="text-muted-foreground">Type</span>
-          <Badge variant="outline">{room.kind === 'channel' ? 'Channel' : 'Chat'}</Badge>
+          <Badge variant="outline">{roomType}</Badge>
         </div>
+        {room.category !== 'dm' && (
+          <div className="flex items-center justify-between">
+            <span className="text-muted-foreground">Category</span>
+            <span className="font-medium">{categoryLabel(room.category)}</span>
+          </div>
+        )}
         <div className="flex items-center justify-between">
-          <span className="text-muted-foreground">Category</span>
-          <span className="font-medium">{categoryLabel(room.category)}</span>
-        </div>
-        <div className="flex items-center justify-between">
-          <span className="text-muted-foreground">Class members</span>
+          <span className="text-muted-foreground">Members</span>
           <span className="font-medium tabular-nums">{members}</span>
         </div>
         <div className="flex items-center justify-between">
           <span className="text-muted-foreground">Messages</span>
           <span className="font-medium tabular-nums">{room.messages.length}</span>
         </div>
-        {room.kind === 'channel' ? (
+        {room.category === 'dm' ? (
           <p className="text-xs text-muted-foreground border-t border-border pt-3 mt-2">
-            В channelе можно читать. Удалять может только админ.
+            Private 1-on-1 conversation. Only you and the other participant can see these messages.
+          </p>
+        ) : room.category === 'group' ? (
+          <p className="text-xs text-muted-foreground border-t border-border pt-3 mt-2">
+            Group chat — only invited members can see this room and read messages.
+          </p>
+        ) : room.kind === 'channel' ? (
+          <p className="text-xs text-muted-foreground border-t border-border pt-3 mt-2">
+            Channel — readable by everyone. Only admins can delete.
           </p>
         ) : (
           <p className="text-xs text-muted-foreground border-t border-border pt-3 mt-2">
             Everyone can write in chats. Polls and anonymous questions are supported.
           </p>
         )}
+      </div>
+    </ModalShell>
+  );
+}
+
+// ============================================================================
+// CreateGroupModal — name + member multiselect
+// ============================================================================
+
+function CreateGroupModal(props: {
+  onClose: () => void;
+  onCreate: (name: string, memberIds: string[]) => void;
+  profiles: DbProfile[];
+  currentUserId: string;
+}) {
+  const { profiles, currentUserId, onCreate, onClose } = props;
+  const [name, setName] = useState('');
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [query, setQuery] = useState('');
+
+  const others = profiles.filter(p => p.id !== currentUserId);
+  const filtered = others.filter(p =>
+    !query || p.name.toLowerCase().includes(query.toLowerCase()),
+  );
+
+  const toggle = (id: string) => {
+    setSelected(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+
+  return (
+    <ModalShell
+      title="New group"
+      description="Pick a name and select members. You'll be added as the group admin."
+      onClose={onClose}
+      footer={
+        <>
+          <Button variant="ghost" onClick={onClose}>Cancel</Button>
+          <Button
+            onClick={() => onCreate(name, Array.from(selected))}
+            disabled={!name.trim() || selected.size === 0}
+          >
+            Create group ({selected.size})
+          </Button>
+        </>
+      }
+    >
+      <div className="space-y-4">
+        <div>
+          <Label htmlFor="gn">Group name</Label>
+          <Input
+            id="gn"
+            placeholder="e.g. Project Team"
+            maxLength={64}
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            autoFocus
+          />
+        </div>
+        <div>
+          <Label htmlFor="gq">Add members</Label>
+          <Input
+            id="gq"
+            placeholder="Search users…"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            className="mt-1"
+          />
+        </div>
+        <div className="max-h-60 overflow-y-auto scroll-thin border border-border rounded-lg divide-y divide-border">
+          {filtered.length === 0 && (
+            <div className="px-3 py-4 text-center text-xs text-muted-foreground">
+              No users found
+            </div>
+          )}
+          {filtered.map(p => {
+            const checked = selected.has(p.id);
+            return (
+              <label
+                key={p.id}
+                className="flex items-center gap-3 px-3 py-2 cursor-pointer hover:bg-muted/40"
+              >
+                <Checkbox
+                  checked={checked}
+                  onCheckedChange={() => toggle(p.id)}
+                />
+                <Avatar user={{ id: p.id, name: p.name, avatar: p.avatar ?? undefined }} size={28} />
+                <div className="flex-1 min-w-0">
+                  <div className="text-sm font-medium truncate">{p.name}</div>
+                  <div className="text-xs text-muted-foreground truncate">{p.email}</div>
+                </div>
+              </label>
+            );
+          })}
+        </div>
+        {selected.size > 0 && (
+          <div className="text-xs text-muted-foreground">
+            {selected.size} member{selected.size === 1 ? '' : 's'} selected
+          </div>
+        )}
+      </div>
+    </ModalShell>
+  );
+}
+
+// ============================================================================
+// ForwardModal — pick a destination room
+// ============================================================================
+
+function ForwardModal(props: {
+  onClose: () => void;
+  onForward: (roomId: string) => void;
+  rooms: Room[];
+  currentRoomId?: string;
+}) {
+  const { onForward, onClose, rooms, currentRoomId } = props;
+  const [query, setQuery] = useState('');
+  const filtered = rooms.filter(r =>
+    r.id !== currentRoomId &&
+    (!query || r.name.toLowerCase().includes(query.toLowerCase())),
+  );
+  return (
+    <ModalShell
+      title="Forward to…"
+      description="Pick a destination room. The original sender's name will be quoted."
+      onClose={onClose}
+      footer={<Button variant="ghost" onClick={onClose}>Cancel</Button>}
+    >
+      <div className="space-y-3">
+        <Input
+          placeholder="Search rooms…"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+        />
+        <div className="max-h-80 overflow-y-auto scroll-thin border border-border rounded-lg divide-y divide-border">
+          {filtered.length === 0 && (
+            <div className="px-3 py-4 text-center text-xs text-muted-foreground">
+              No rooms available
+            </div>
+          )}
+          {filtered.map(r => (
+            <button
+              key={r.id}
+              type="button"
+              onClick={() => onForward(r.id)}
+              className="w-full flex items-center gap-3 px-3 py-2 hover:bg-muted/40 transition-colors text-left"
+            >
+              {r.category === 'dm' ? (
+                <UserIcon className="size-4 shrink-0 text-primary" />
+              ) : r.category === 'group' ? (
+                <Users className="size-4 shrink-0 text-primary" />
+              ) : r.kind === 'channel' ? (
+                <Megaphone className="size-4 shrink-0 text-primary" />
+              ) : (
+                <MessageSquare className="size-4 shrink-0 text-primary" />
+              )}
+              <div className="flex-1 min-w-0">
+                <div className="text-sm font-medium truncate">{r.name}</div>
+                <div className="text-xs text-muted-foreground">
+                  {r.category === 'dm' ? 'Direct message'
+                    : r.category === 'group' ? `Group · ${r.groupMembers?.length ?? 0} members`
+                    : r.kind === 'channel' ? 'Channel'
+                    : 'Chat'}
+                </div>
+              </div>
+              <Forward className="size-4 text-muted-foreground shrink-0" />
+            </button>
+          ))}
+        </div>
       </div>
     </ModalShell>
   );
