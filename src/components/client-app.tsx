@@ -439,7 +439,12 @@ export default function ClientApp() {
       setProfiles(dbProfiles);
       const appRooms = dbRooms.map(r => dbRoomToApp(r, user.id, dbProfiles));
       setRoomMemberships(memberships);
-      setRooms(appRooms);
+      // Preserve already-loaded messages — refreshRooms can fire from realtime
+      // while the user is reading a room; wiping messages would blank the chat.
+      setRooms(prev => {
+        const byId = new Map(prev.map(r => [r.id, r]));
+        return appRooms.map(r => ({ ...r, messages: byId.get(r.id)?.messages ?? [] }));
+      });
       // Chat-list previews (latest message per room)
       loadRoomPreviews().then(list => {
         setPreviews(prev => {
