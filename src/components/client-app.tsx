@@ -1789,9 +1789,9 @@ function MessageItem(props: { msg: Message; currentUserId: string; showHeader: b
         <button
           type="button"
           aria-label={t('msg.moreActions')}
-          className={`group/more:opacity-100 size-7 shrink-0 inline-flex items-center justify-center rounded-full
-            text-muted-foreground hover:bg-foreground/10 hover:text-foreground transition-opacity
-            ${mine ? 'opacity-0 group-hover/msg:opacity-100' : 'opacity-0 group-hover/msg:opacity-100'}`}
+          className="size-7 shrink-0 inline-flex items-center justify-center rounded-full
+            text-muted-foreground/60 hover:bg-foreground/10 hover:text-foreground
+            transition-colors"
           onClick={(e) => e.stopPropagation()}
         >
           <MoreVertical className="size-4" />
