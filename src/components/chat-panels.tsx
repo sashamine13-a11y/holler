@@ -62,7 +62,7 @@ export function MessageItem(props: {
   const mine = msg.authorId === currentUserId;
   const isVideo = msg.mediaType === 'video';
   const isAudio = msg.mediaType === 'audio';
-  const safeImage = safeDataUrl(msg.image);
+  const safeImage = safeDataUrl(msg.image, 2_100_000);
 
   const onReplyCb = onReply ? () => onReply(msg) : undefined;
   const onForwardCb = onForward ? () => onForward(msg) : undefined;
