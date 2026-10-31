@@ -313,6 +313,12 @@ export default function ClientApp() {
     if (!active || !user || loadingRooms) return;
     let cancelled = false;
     (async () => {
+      // Ensure the Supabase session is hydrated before querying.
+      // A query fired before session restore runs anonymously and RLS
+      // silently returns an empty list (HTTP 200, []).
+      const { supabase } = await import('@/lib/supabase');
+      const { data: sessData } = await supabase.auth.getSession();
+      if (!sessData.session) return;
       const dbMsgs = await loadMessages(active);
       if (cancelled) return;
       const appMsgs = dbMsgs.map(dbMsgToApp);
