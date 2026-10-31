@@ -535,6 +535,11 @@ export function UserProfileModal(props: {
             <AtSign className="size-3.5" />
             <span className="word-safe">{username}</span>
           </div>
+          {profile.about && (
+            <p className="mt-2 text-sm text-foreground/90 max-w-[20rem] mx-auto whitespace-pre-wrap break-words word-safe">
+              {profile.about}
+            </p>
+          )}
         </div>
 
         {/* Details */}

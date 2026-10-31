@@ -3,6 +3,7 @@
 import { useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Avatar } from '@/components/avatar';
@@ -14,11 +15,11 @@ import {
   useLocalSettings,
   type AccentColor, type FontSize, type Wallpaper, type SoundPreset,
 } from '@/lib/local-settings';
-import { AVATAR_DIM, AVATAR_MAX_BYTES, MAX_NAME_LEN, MAX_USERNAME_LEN, MIN_USERNAME_LEN, type User } from '@/lib/chat-types';
+import { AVATAR_DIM, AVATAR_MAX_BYTES, MAX_NAME_LEN, MAX_USER_ABOUT_LEN, MAX_USERNAME_LEN, MIN_USERNAME_LEN, type User } from '@/lib/chat-types';
 import { toast } from 'sonner';
 import {
   AtSign, Bell, Check, Database, ImagePlus, KeyRound, Lock, LogOut, Palette,
-  ShieldCheck, Sun, Volume2, Wand2, Wrench, Terminal, Wifi, Users, MessageSquare,
+  ShieldCheck, Sun, Volume2, Wand2, Wrench, Terminal, Wifi, Users, MessageSquare, Info,
 } from 'lucide-react';
 
 // Dev panel data passed from the app root (only rendered for role='dev')
@@ -53,7 +54,7 @@ export function SettingsModal(props: {
   onClose: () => void;
   user: User;
   memberSince?: string;
-  onUpdateProfile: (name: string, username: string, avatar?: string) => Promise<boolean>;
+  onUpdateProfile: (name: string, username: string, avatar?: string, about?: string) => Promise<boolean>;
   onLogout: () => void;
   devInfo?: DevPanelInfo;
 }) {
@@ -64,24 +65,20 @@ export function SettingsModal(props: {
   // profile section
   const [name, setName] = useState(user.name);
   const [username, setUsername] = useState(user.username ?? '');
+  const [about, setAbout] = useState(user.about ?? '');
   const [avatar, setAvatar] = useState<string | undefined>(user.avatar);
   const [savingProfile, setSavingProfile] = useState(false);
   const profileDirty = name.trim() !== user.name
     || username.trim().toLowerCase() !== (user.username ?? '').toLowerCase()
+    || (about.trim() !== (user.about ?? ''))
     || avatar !== user.avatar;
   const fileRef = useRef<HTMLInputElement>(null);
 
-  // username live validation
+  // username live validation (optional — empty means "keep auto-generated default")
   const unameClean = username.trim().toLowerCase();
-  const unameValid = /^[a-z0-9_]{3,20}$/.test(unameClean);
-  const unameChanged = unameClean !== (user.username ?? '').toLowerCase();
-  const unameError = !unameClean
-    ? null
-    : unameClean.length < MIN_USERNAME_LEN
-      ? t('profile.usernameTooShort')
-      : !unameValid
-        ? t('profile.usernameInvalid')
-        : null;
+  const unameValid = unameClean === '' || /^[a-z0-9_]{3,20}$/.test(unameClean);
+  const unameError = !unameValid ? t('profile.usernameInvalid')
+    : (unameClean.length > 0 && unameClean.length < MIN_USERNAME_LEN ? t('profile.usernameTooShort') : null);
 
   // password section
   const [pwOpen, setPwOpen] = useState(false);
@@ -127,8 +124,10 @@ export function SettingsModal(props: {
   const saveProfile = async () => {
     if (!profileDirty || savingProfile) return;
     if (!name.trim()) { toast.error(t('profile.nameEmpty')); return; }
-    const uname = username.trim().toLowerCase();
-    if (uname.length < MIN_USERNAME_LEN) { toast.error(t('profile.usernameTooShort')); return; }
+    const unameInput = username.trim().toLowerCase();
+    // username is optional — if blank we keep the existing one (always present in DB)
+    const uname = unameInput || (user.username ?? '');
+    if (!uname) { toast.error(t('profile.usernameInvalid')); return; }
     if (!/^[a-z0-9_]{3,20}$/.test(uname)) { toast.error(t('profile.usernameInvalid')); return; }
     setSavingProfile(true);
     // uniqueness check (DB unique index is the final guard)
@@ -151,7 +150,7 @@ export function SettingsModal(props: {
         console.warn('username uniqueness check failed:', e);
       }
     }
-    const ok = await onUpdateProfile(name.trim(), uname, avatar);
+    const ok = await onUpdateProfile(name.trim(), uname, avatar, about);
     setSavingProfile(false);
     if (ok) toast.success(t('profile.saved'));
   };
@@ -271,6 +270,7 @@ export function SettingsModal(props: {
             <Label htmlFor="st-username" className="flex items-center gap-1.5">
               <AtSign className="size-3.5 text-muted-foreground" />
               {t('profile.username')}
+              <span className="text-muted-foreground font-normal text-[11px]">· {t('common.optional')}</span>
             </Label>
             <div className="relative">
               <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">@</span>
@@ -279,18 +279,34 @@ export function SettingsModal(props: {
                 className="pl-7"
                 maxLength={MAX_USERNAME_LEN}
                 value={username}
+                placeholder={user.username ?? t('profile.usernameDefault')}
                 onChange={(e) => setUsername(e.target.value.replace(/\s/g, '').toLowerCase())}
                 spellCheck={false}
                 autoComplete="off"
-                aria-invalid={unameChanged && unameError ? true : undefined}
+                aria-invalid={unameError ? true : undefined}
               />
             </div>
-            <p className={`text-xs mt-1 ${unameChanged && unameError ? 'text-destructive' : 'text-muted-foreground'}`}>
-              {unameChanged && unameError ? unameError : t('profile.usernameHint')}
+            <p className={`text-xs mt-1 ${unameError ? 'text-destructive' : 'text-muted-foreground'}`}>
+              {unameError ? unameError : t('profile.usernameHint')}
             </p>
           </div>
+          <div className="mt-3">
+            <Label htmlFor="st-about" className="flex items-center gap-1.5">
+              <Info className="size-3.5 text-muted-foreground" />
+              {t('profile.about')}
+            </Label>
+            <Textarea
+              id="st-about"
+              className="resize-none min-h-[60px] max-h-32"
+              maxLength={MAX_USER_ABOUT_LEN}
+              value={about}
+              onChange={(e) => setAbout(e.target.value)}
+              placeholder={t('profile.aboutHint')}
+            />
+            <p className="text-[11px] text-muted-foreground mt-1 text-right">{about.length}/{MAX_USER_ABOUT_LEN}</p>
+          </div>
           {profileDirty && (
-            <Button className="mt-2 w-full" onClick={saveProfile} disabled={savingProfile || (unameChanged && Boolean(unameError))}>
+            <Button className="mt-2 w-full" onClick={saveProfile} disabled={savingProfile || Boolean(unameError)}>
               <Check className="size-4 mr-1.5" /> {t('profile.save')}
             </Button>
           )}

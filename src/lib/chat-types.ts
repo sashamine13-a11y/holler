@@ -11,6 +11,7 @@ export interface User {
   avatar?: string;
   email?: string;
   username?: string;
+  about?: string;
 }
 
 export interface Message {
@@ -78,6 +79,7 @@ export const AVATAR_DIM = 160;
 export const MAX_MSG_LEN = 2000;
 export const MAX_NAME_LEN = 32;
 export const MAX_ABOUT_LEN = 120;
+export const MAX_USER_ABOUT_LEN = 140;
 export const MAX_USERNAME_LEN = 20;
 export const MIN_USERNAME_LEN = 3;
 

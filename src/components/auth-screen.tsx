@@ -6,10 +6,11 @@ import { Input } from '@/components/ui/input';
 import { Card } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
 import { toast } from 'sonner';
-import { AlertCircle, Mail, Lock, User as UserIcon, ArrowRight, KeyRound, HelpCircle } from 'lucide-react';
+import { AlertCircle, AtSign, Mail, Lock, User as UserIcon, ArrowRight, KeyRound, HelpCircle } from 'lucide-react';
 import { useAuth } from '@/hooks/use-auth';
 import { useI18n } from '@/lib/i18n';
 import { ThemeToggle } from '@/components/theme-toggle';
+import { MAX_USERNAME_LEN } from '@/lib/chat-types';
 
 interface AuthScreenProps {
   onSuccess: (user: { id: string; name: string; email: string; role: 'member' | 'admin'; avatar?: string }) => void;
@@ -30,6 +31,7 @@ export function AuthScreen({ onSuccess }: AuthScreenProps) {
 
   // Sign up
   const [name, setName] = useState('');
+  const [username, setUsername] = useState('');
   const [secretQuestion, setSecretQuestion] = useState('');
   const [secretAnswer, setSecretAnswer] = useState('');
 
@@ -38,6 +40,10 @@ export function AuthScreen({ onSuccess }: AuthScreenProps) {
   const [currentQuestion, setCurrentQuestion] = useState('');
   const [secretAnswerInput, setSecretAnswerInput] = useState('');
   const [newPassword, setNewPassword] = useState('');
+
+  // username live validation (optional field)
+  const unameClean = username.trim().toLowerCase();
+  const unameValid = unameClean === '' || /^[a-z0-9_]{3,20}$/.test(unameClean);
 
   const submit = async () => {
     setError('');
@@ -48,6 +54,10 @@ export function AuthScreen({ onSuccess }: AuthScreenProps) {
     if (mode === 'signup') {
       if (!name.trim()) {
         setError('Please enter your name');
+        return;
+      }
+      if (!unameValid) {
+        setError(t('profile.usernameInvalid'));
         return;
       }
       if (!secretQuestion.trim() || !secretAnswer.trim()) {
@@ -65,7 +75,7 @@ export function AuthScreen({ onSuccess }: AuthScreenProps) {
     if (mode === 'signin') {
       result = await signIn(email.trim(), password);
     } else {
-      result = await signUp(email.trim(), password, name.trim(), secretQuestion.trim(), secretAnswer.trim());
+      result = await signUp(email.trim(), password, name.trim(), secretQuestion.trim(), secretAnswer.trim(), unameClean || undefined);
     }
 
     if (result.error) {
@@ -327,6 +337,33 @@ export function AuthScreen({ onSuccess }: AuthScreenProps) {
                       maxLength={32}
                     />
                   </div>
+                </div>
+              )}
+              {mode === 'signup' && (
+                <div>
+                  <Label htmlFor="signup-username" className="flex items-center gap-1.5">
+                    <AtSign className="size-3.5 text-muted-foreground" />
+                    {t('profile.username')}
+                    <span className="text-muted-foreground font-normal text-[11px]">· {t('common.optional')}</span>
+                  </Label>
+                  <div className="relative">
+                    <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">@</span>
+                    <Input
+                      id="signup-username"
+                      placeholder={t('profile.usernameDefault')}
+                      value={username}
+                      onChange={(e) => setUsername(e.target.value.replace(/\s/g, '').toLowerCase())}
+                      onKeyDown={(e) => e.key === 'Enter' && submit()}
+                      className="pl-8"
+                      maxLength={MAX_USERNAME_LEN}
+                      spellCheck={false}
+                      autoComplete="off"
+                      aria-invalid={!unameValid}
+                    />
+                  </div>
+                  <p className={`text-[11px] mt-1 ${!unameValid ? 'text-destructive' : 'text-muted-foreground'}`}>
+                    {!unameValid ? t('profile.usernameInvalid') : t('profile.usernameHint')}
+                  </p>
                 </div>
               )}
               <div>

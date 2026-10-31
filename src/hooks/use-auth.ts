@@ -11,6 +11,7 @@ export interface AuthUser {
   role: 'member' | 'admin' | 'dev';
   avatar?: string;
   username?: string;
+  about?: string;
 }
 
 /**
@@ -85,6 +86,7 @@ export function useAuth() {
           role: profile.role || 'member',
           avatar: profile.avatar,
           username: profile.username,
+          about: profile.about ?? undefined,
         });
       } else {
         // Профиль ещё не создан — используем данные из auth
@@ -107,7 +109,8 @@ export function useAuth() {
     password: string,
     name: string,
     secretQuestion?: string,
-    secretAnswer?: string
+    secretAnswer?: string,
+    username?: string
   ): Promise<{ error?: string }> => {
     const cleanEmail = email.trim().toLowerCase();
     const cleanName = name.trim();
@@ -122,10 +125,20 @@ export function useAuth() {
       return { error: 'Invalid email format' };
     }
 
+    // username is optional; validate format if provided
+    const cleanUsername = username ? username.trim().toLowerCase() : '';
+    if (cleanUsername && !/^[a-z0-9_]{3,20}$/.test(cleanUsername)) {
+      return { error: 'Username: 3–20 chars, lowercase letters, numbers, underscore only' };
+    }
+
     const result = await withTimeout(supabase.auth.signUp({
       email: cleanEmail,
       password,
-      options: { data: { name: cleanName } },
+      options: {
+        data: cleanUsername
+          ? { name: cleanName, username: cleanUsername }
+          : { name: cleanName },
+      },
     }), 15000);
 
     if (result.error) return { error: translateError(result.error.message) };

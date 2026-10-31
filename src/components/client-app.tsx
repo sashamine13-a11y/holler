@@ -194,7 +194,7 @@ export default function ClientApp() {
   useEffect(() => {
     if (authUser) {
       setUser(prev => {
-        if (prev && prev.id === authUser.id && prev.name === authUser.name && prev.username === authUser.username) return prev;
+        if (prev && prev.id === authUser.id && prev.name === authUser.name && prev.username === authUser.username && prev.about === authUser.about) return prev;
         return {
           id: authUser.id,
           name: authUser.name,
@@ -202,6 +202,7 @@ export default function ClientApp() {
           avatar: authUser.avatar,
           email: authUser.email,
           username: authUser.username,
+          about: authUser.about,
         };
       });
     } else if (!authLoading) {
@@ -928,11 +929,12 @@ export default function ClientApp() {
     toast.success(t('anon.answerSent'));
   };
 
-  const updateProfile = async (name: string, username: string, role: Role, avatar?: string) => {
+  const updateProfile = async (name: string, username: string, role: Role, avatar?: string, about?: string) => {
     if (!user) return false;
     const cleanName = sanitizeText(name, 32);
     if (!cleanName) { toast.error(t('profile.nameEmpty')); return false; }
     const cleanUsername = sanitizeText(username, 20).toLowerCase();
+    const cleanAbout = about != null ? sanitizeText(about, 140) : undefined;
     const cleanAvatar = safeDataUrl(avatar, 100_000);
     try {
       const { supabase } = await import('@/lib/supabase');
@@ -941,12 +943,13 @@ export default function ClientApp() {
         username: cleanUsername,
         role,
         avatar: cleanAvatar ?? null,
+        ...(cleanAbout !== undefined ? { about: cleanAbout || null } : {}),
       }).eq('id', user.id);
     } catch (e) {
       console.warn('Profile update failed:', e);
     }
-    setUser(prev => prev ? { ...prev, name: cleanName, username: cleanUsername, role, avatar: cleanAvatar } : prev);
-    setProfiles(prev => prev.map(p => p.id === user.id ? { ...p, name: cleanName, username: cleanUsername, role, avatar: cleanAvatar ?? null } : p));
+    setUser(prev => prev ? { ...prev, name: cleanName, username: cleanUsername, role, avatar: cleanAvatar, ...(cleanAbout !== undefined ? { about: cleanAbout || undefined } : {}) } : prev);
+    setProfiles(prev => prev.map(p => p.id === user.id ? { ...p, name: cleanName, username: cleanUsername, role, avatar: cleanAvatar ?? null, ...(cleanAbout !== undefined ? { about: cleanAbout || null } : {}) } : p));
     return true;
   };
 
@@ -1670,7 +1673,7 @@ export default function ClientApp() {
           onClose={() => setModalMode(null)}
           user={user}
           memberSince={profiles.find(p => p.id === user.id)?.created_at}
-          onUpdateProfile={(name, username, avatar) => updateProfile(name, username, user.role, avatar)}
+          onUpdateProfile={(name, username, avatar, about) => updateProfile(name, username, user.role, avatar, about)}
           onLogout={handleLogout}
           devInfo={{
             userId: user.id,
@@ -1694,7 +1697,7 @@ export default function ClientApp() {
               setTimeout(() => window.location.reload(), 600);
             },
             getSnapshot: () => JSON.stringify({
-              user: { id: user.id, name: user.name, role: user.role, email: user.email, username: user.username },
+              user: { id: user.id, name: user.name, role: user.role, email: user.email, username: user.username, about: user.about },
               connection: { socket: isConnected, online: onlineMembers.length },
               rooms: rooms.map(r => ({
                 id: r.id, name: r.name, kind: r.kind, roomType: r.roomType,
