@@ -72,13 +72,12 @@ export function Sidebar(props: {
   };
 
   const channels = sortByPinned(rooms.filter(r => r.kind === 'channel' && r.roomType === 'channel' && matchesSearch(r)));
-  const chats = sortByPinned(rooms.filter(r => r.kind === 'chat' && r.roomType === 'channel' && matchesSearch(r)));
   const groups = sortByPinned(rooms.filter(r => r.roomType === 'group' && matchesSearch(r)));
   const dms = sortByPinned(rooms.filter(r => r.roomType === 'dm' && matchesSearch(r)));
 
   const counts: Record<RoomFilter, number> = {
-    all: channels.length + chats.length + groups.length + dms.length,
-    channels: channels.length + chats.length,
+    all: channels.length + groups.length + dms.length,
+    channels: channels.length,
     groups: groups.length,
     dms: dms.length,
   };
@@ -104,7 +103,6 @@ export function Sidebar(props: {
   const sections: { id: string; label: string; icon: React.ReactNode; add?: () => void; addLabel?: string; list: Room[] }[] = [
     { id: 'dms', label: t('nav.dms'), icon: <UserIcon className="size-3" />, add: onNewDm, addLabel: t('nav.newMessage'), list: dms },
     { id: 'groups', label: t('nav.groups'), icon: <Users className="size-3" />, add: onAddGroup, addLabel: t('nav.createGroup'), list: groups },
-    { id: 'chats', label: t('nav.chats'), icon: <MessageSquare className="size-3" />, add: onAddChannel, addLabel: t('nav.createChat'), list: chats },
     { id: 'channels', label: t('nav.channels'), icon: <Megaphone className="size-3" />, add: onAddChannel, addLabel: t('nav.createChannel'), list: channels },
   ];
 
@@ -148,13 +146,12 @@ export function Sidebar(props: {
           </div>
           <div className="min-w-0 flex-1">
             <div className="font-bold text-[15px] leading-tight tracking-tight truncate">Holler</div>
-            <div className="text-[11px] text-muted-foreground truncate flex items-center gap-1.5">
-              {isConnected ? (
-                <><span className="size-1.5 rounded-full bg-emerald-500 pulse-ring inline-block shrink-0" /> {t('nav.online')}: {onlineMembers.length}</>
-              ) : (
-                <><WifiOff className="size-3 text-destructive connection-pulse shrink-0" /> {t('nav.noConnection')}</>
-              )}
-            </div>
+            {/* Connection status only — the global online counter was removed on purpose */}
+            {!isConnected ? (
+              <div className="text-[11px] text-destructive truncate flex items-center gap-1.5">
+                <WifiOff className="size-3 connection-pulse shrink-0" /> {t('nav.noConnection')}
+              </div>
+            ) : null}
           </div>
           <LanguageSwitcher />
           <ThemeToggle />
@@ -264,7 +261,7 @@ export function Sidebar(props: {
               {counts[filter] === 0 && (
                 <div className="text-xs text-muted-foreground px-3 py-2">{emptyByFilter[filter]}</div>
               )}
-              {(filter === 'dms' ? dms : filter === 'groups' ? groups : [...channels, ...chats]).map(renderRoom)}
+              {(filter === 'dms' ? dms : filter === 'groups' ? groups : channels).map(renderRoom)}
             </div>
           )}
 
@@ -312,7 +309,7 @@ export function Sidebar(props: {
             <div className="min-w-0 flex-1">
               <div className="text-sm font-medium truncate">{user.name}</div>
               <div className="text-[11px] text-muted-foreground truncate">
-                {user.role === 'admin' ? t('nav.adminRights') : t('nav.member')}
+                {user.role === 'dev' ? t('nav.devRole') : user.role === 'admin' ? t('nav.adminRights') : t('nav.member')}
               </div>
             </div>
             <Settings className="size-4 text-muted-foreground shrink-0" />

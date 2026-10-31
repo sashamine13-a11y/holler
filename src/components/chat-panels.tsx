@@ -4,12 +4,15 @@ import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { MessageContextMenu } from '@/components/message-context-menu';
 import { avColor, initials, formatTime, safeDataUrl, MAX_MSG_LEN, type Message, type Poll, type AnonQuestion } from '@/lib/chat-types';
 import { useLocalSettings, formatTimePref } from '@/lib/local-settings';
+import type { ChannelComment } from '@/lib/api';
 import {
-  BarChart3, CheckCircle2, Circle, EyeOff, Forward, Pin, Reply, Send,
+  BarChart3, CheckCircle2, ChevronDown, Circle, EyeOff, Forward, MessageCircle,
+  MessageCircleOff, Pin, Reply, Send, Trash2, Wrench,
 } from 'lucide-react';
 
 // ============================================================================
@@ -34,11 +37,22 @@ export function MessageItem(props: {
   onCopy?: (text: string) => void;
   onEdit?: (msg: Message) => void;
   t: (key: string) => string;
+  // dev role: can delete any message
+  canModerate?: boolean;
+  // channel comments thread under the post
+  channelMode?: boolean;
+  comments?: ChannelComment[];
+  commentsAllowed?: boolean;
+  canModerateComments?: boolean;
+  onAddComment?: (msgId: string, text: string) => void;
+  onDeleteComment?: (c: ChannelComment) => void;
 }) {
   const {
     msg, currentUserId, showHeader, isPinned, isEditing, editText,
     onEditChange, onEditSave, onEditCancel,
     onReply, onPin, onUnpin, onDelete, onForward, onCopy, onEdit, t,
+    canModerate, channelMode, comments, commentsAllowed, canModerateComments,
+    onAddComment, onDeleteComment,
   } = props;
   const { settings } = useLocalSettings();
   const mine = msg.authorId === currentUserId;
@@ -56,6 +70,7 @@ export function MessageItem(props: {
   return (
     <MessageContextMenu
       isOwn={mine} hasText={Boolean(msg.text)} isPinned={isPinned}
+      canDelete={canModerate}
       onReply={onReplyCb} onPin={onPinCb} onUnpin={onUnpin}
       onDelete={onDeleteCb} onForward={onForwardCb} onCopy={onCopyCb} onEdit={onEditCb} t={t}
     >
@@ -79,6 +94,11 @@ export function MessageItem(props: {
               </span>
               {!msg.anon && msg.role === 'admin' && (
                 <Badge variant="secondary" className="text-[9px] px-1 py-0 h-3.5 tracking-wide shrink-0">ADMIN</Badge>
+              )}
+              {!msg.anon && msg.role === 'dev' && (
+                <Badge variant="secondary" className="text-[9px] px-1 py-0 h-3.5 tracking-wide shrink-0 gap-0.5 border-cyan-500/40 bg-cyan-500/10 text-cyan-600">
+                  <Wrench className="size-2.5" /> {t('room.devTag')}
+                </Badge>
               )}
               {isPinned && (
                 <span className="inline-flex items-center gap-0.5 text-amber-500 text-[10px] font-medium shrink-0">
@@ -188,9 +208,121 @@ export function MessageItem(props: {
               </button>
             )}
           </div>
+          {/* Channel post comments thread */}
+          {channelMode && comments && onAddComment && onDeleteComment && (
+            <CommentThread
+              msgId={msg.id}
+              comments={comments}
+              allowed={!!commentsAllowed}
+              canModerate={!!canModerateComments}
+              currentUserId={currentUserId}
+              onAdd={(text) => onAddComment(msg.id, text)}
+              onDelete={onDeleteComment}
+              t={t}
+            />
+          )}
         </div>
       </div>
     </MessageContextMenu>
+  );
+}
+
+// ============================================================================
+// CommentThread — discussion under a channel post
+// ============================================================================
+
+function CommentThread(props: {
+  msgId: string;
+  comments: ChannelComment[];
+  allowed: boolean;
+  canModerate: boolean;
+  currentUserId: string;
+  onAdd: (text: string) => void;
+  onDelete: (c: ChannelComment) => void;
+  t: (key: string) => string;
+}) {
+  const { settings } = useLocalSettings();
+  const [open, setOpen] = useState(false);
+  const [text, setText] = useState('');
+  const count = props.comments.length;
+
+  return (
+    <div className="mt-1 w-full">
+      <button
+        type="button"
+        onClick={() => setOpen(o => !o)}
+        className="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-primary transition-colors px-2 py-1 rounded-full hover:bg-muted/50"
+      >
+        <MessageCircle className="size-3.5" />
+        <span className="tabular-nums font-medium">{count}</span>
+        <span>{props.t('cmt.title')}</span>
+        <ChevronDown className={`size-3 transition-transform ${open ? 'rotate-180' : ''}`} />
+      </button>
+      {open && (
+        <div className="mt-1.5 rounded-xl border border-border bg-muted/20 p-2 space-y-1.5 slide-down">
+          {count === 0 && (
+            <div className="text-xs text-muted-foreground px-1 py-0.5">{props.t('cmt.empty')}</div>
+          )}
+          {props.comments.map(c => {
+            const mine = c.author_id === props.currentUserId;
+            const canDel = mine || props.canModerate;
+            return (
+              <div key={c.id} className="group/c flex items-start gap-2 px-1">
+                <div className="min-w-0 flex-1">
+                  <div className="text-[11px] flex items-center gap-1.5 min-w-0">
+                    <span className="font-medium text-foreground truncate">{c.author_name}</span>
+                    <span className="text-muted-foreground/70 tabular-nums shrink-0">
+                      {formatTimePref(new Date(c.created_at).getTime(), settings)}
+                    </span>
+                  </div>
+                  <div className="text-[13px] whitespace-pre-wrap word-safe break-words text-foreground/90">{c.text}</div>
+                </div>
+                {canDel && (
+                  <button
+                    type="button"
+                    aria-label={props.t('msg.delete')}
+                    className="opacity-0 group-hover/c:opacity-100 focus-visible:opacity-100 text-muted-foreground hover:text-destructive transition-opacity shrink-0 mt-0.5"
+                    onClick={() => props.onDelete(c)}
+                  >
+                    <Trash2 className="size-3.5" />
+                  </button>
+                )}
+              </div>
+            );
+          })}
+          {props.allowed ? (
+            <div className="flex items-center gap-1.5 pt-0.5">
+              <Input
+                value={text}
+                onChange={(e) => setText(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    if (text.trim()) { props.onAdd(text); setText(''); }
+                  }
+                }}
+                placeholder={props.t('cmt.placeholder')}
+                maxLength={MAX_MSG_LEN}
+                className="h-8 text-[13px] rounded-lg bg-background/60"
+              />
+              <Button
+                size="icon"
+                className="size-8 rounded-lg shrink-0"
+                disabled={!text.trim()}
+                onClick={() => { props.onAdd(text); setText(''); }}
+                aria-label={props.t('msg.send')}
+              >
+                <Send className="size-3.5" />
+              </Button>
+            </div>
+          ) : (
+            <div className="text-xs text-muted-foreground px-1 py-1 flex items-center gap-1.5">
+              <MessageCircleOff className="size-3.5 shrink-0" /> {props.t('cmt.disabled')}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
   );
 }
 

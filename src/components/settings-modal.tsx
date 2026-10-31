@@ -18,8 +18,25 @@ import { AVATAR_DIM, AVATAR_MAX_BYTES, MAX_NAME_LEN, type User } from '@/lib/cha
 import { toast } from 'sonner';
 import {
   Bell, Check, Database, ImagePlus, KeyRound, Lock, LogOut, Palette,
-  ShieldCheck, Sun, Volume2, Wand2,
+  ShieldCheck, Sun, Volume2, Wand2, Wrench, Terminal, Wifi, Users, MessageSquare,
 } from 'lucide-react';
+
+// Dev panel data passed from the app root (only rendered for role='dev')
+export interface DevPanelInfo {
+  userId: string;
+  email: string;
+  role: string;
+  socketConnected: boolean;
+  onlineCount: number;
+  roomsCount: number;
+  profilesCount: number;
+  activeRoomId: string;
+  activeRoomKind: string;
+  messagesCount: number;
+  onRefreshRooms: () => void;
+  onClearCaches: () => void;
+  getSnapshot: () => string;
+}
 
 // ============================================================================
 // SettingsModal — comprehensive personal settings like a real messenger:
@@ -38,8 +55,9 @@ export function SettingsModal(props: {
   memberSince?: string;
   onUpdateProfile: (name: string, avatar?: string) => Promise<boolean>;
   onLogout: () => void;
+  devInfo?: DevPanelInfo;
 }) {
-  const { onClose, user, memberSince, onUpdateProfile, onLogout } = props;
+  const { onClose, user, memberSince, onUpdateProfile, onLogout, devInfo } = props;
   const { t, locale, setLocale, dateLocale } = useI18n();
   const { settings, update, reset } = useLocalSettings();
 
@@ -549,6 +567,71 @@ export function SettingsModal(props: {
             </Button>
           </div>
         </section>
+
+        {/* ---------------- Developer (role=dev only) ---------------- */}
+        {devInfo && (
+          <section className="border-t border-border pt-4">
+            <SectionTitle icon={<Wrench className="size-3.5 text-cyan-500" />} label={t('dev.section')} />
+            <p className="text-xs text-muted-foreground mt-1">{t('dev.hint')}</p>
+
+            <div className="rounded-xl border border-cyan-500/25 bg-cyan-500/5 p-3 mt-2 space-y-3">
+              <div>
+                <div className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-1">{t('dev.identity')}</div>
+                <div className="text-xs font-mono break-all space-y-0.5">
+                  <div>id: <span className="text-cyan-600">{devInfo.userId}</span></div>
+                  <div>email: {devInfo.email || '—'}</div>
+                  <div>role: <span className="text-cyan-600 font-bold">{devInfo.role}</span></div>
+                </div>
+              </div>
+
+              <div>
+                <div className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-1">{t('dev.connection')}</div>
+                <div className="text-xs space-y-1">
+                  <div className="flex items-center gap-1.5">
+                    <Wifi className="size-3.5 shrink-0" />
+                    realtime: {devInfo.socketConnected
+                      ? <span className="text-emerald-500 font-medium">connected</span>
+                      : <span className="text-destructive font-medium">offline</span>}
+                    <span className="text-muted-foreground">· {devInfo.onlineCount} online</span>
+                  </div>
+                </div>
+              </div>
+
+              <div>
+                <div className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-1">{t('dev.stats')}</div>
+                <div className="text-xs space-y-1">
+                  <div className="flex items-center gap-1.5"><Users className="size-3.5 shrink-0" /> rooms: {devInfo.roomsCount} · profiles: {devInfo.profilesCount}</div>
+                  <div className="flex items-center gap-1.5"><MessageSquare className="size-3.5 shrink-0" /> messages in state: {devInfo.messagesCount}</div>
+                  <div className="flex items-center gap-1.5"><Terminal className="size-3.5 shrink-0" /> active: <span className="font-mono break-all">{devInfo.activeRoomId || '—'} {devInfo.activeRoomKind && `(${devInfo.activeRoomKind})`}</span></div>
+                </div>
+              </div>
+
+              <div>
+                <div className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-1">{t('dev.actions')}</div>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-1.5">
+                  <Button
+                    variant="outline" size="sm" className="h-8 text-xs"
+                    onClick={() => {
+                      navigator.clipboard?.writeText(devInfo.getSnapshot());
+                      toast.success(t('dev.snapshotCopied'));
+                    }}
+                  >
+                    <Terminal className="size-3.5 mr-1" /> {t('dev.copySnapshot')}
+                  </Button>
+                  <Button variant="outline" size="sm" className="h-8 text-xs" onClick={devInfo.onRefreshRooms}>
+                    <Database className="size-3.5 mr-1" /> {t('dev.refreshRooms')}
+                  </Button>
+                  <Button
+                    variant="outline" size="sm" className="h-8 text-xs text-destructive border-destructive/30 hover:bg-destructive/10 hover:text-destructive"
+                    onClick={devInfo.onClearCaches}
+                  >
+                    <Wand2 className="size-3.5 mr-1" /> {t('dev.clearCaches')}
+                  </Button>
+                </div>
+              </div>
+            </div>
+          </section>
+        )}
 
         <p className="text-[11px] text-muted-foreground text-center border-t border-border pt-3">
           {t('settings.aboutApp')}

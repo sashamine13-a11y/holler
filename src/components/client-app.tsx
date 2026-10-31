@@ -28,24 +28,25 @@ import { SettingsModal } from '@/components/settings-modal';
 import { useI18n } from '@/lib/i18n';
 import { useLocalSettings, formatTimePref, WALLPAPER_PRESETS } from '@/lib/local-settings';
 import {
-  type DbRoom, type DbMessage, type DbProfile, type DbRoomMember,
+  type DbRoom, type DbMessage, type DbProfile, type DbRoomMember, type ChannelComment,
   loadRooms, loadMessages, loadProfiles, loadRoom,
   insertMessage, softDeleteMessage as apiDeleteMessage, editMessage as apiEditMessage,
   findOrCreateDm, createGroup as apiCreateGroup,
   updateRoom as apiUpdateRoom, addRoomMembers as apiAddMembers, removeRoomMember as apiRemoveMember,
   pinMessageDb, loadPin, unpinDb,
   loadRoomPreviews, type RoomPreview,
-  subscribeToRoomMessages, subscribeToRooms, subscribeToPin,
+  loadChannelComments, insertChannelComment, deleteChannelComment,
+  subscribeToRoomMessages, subscribeToRooms, subscribeToPin, subscribeToRoomComments,
 } from '@/lib/api';
 import {
   AVATAR_MAX_BYTES, formatDateLabel, roomColor, safeDataUrl, sanitizeText, uid,
   MAX_ABOUT_LEN, MAX_MSG_LEN,
-  type AnonQuestion, type Message, type Pinned, type Poll, type Room, type RoomKind, type User,
+  type AnonQuestion, type Message, type Pinned, type Poll, type Role, type Room, type RoomKind, type User,
 } from '@/lib/chat-types';
 import {
   Send, Pin, BarChart3, EyeOff, Trash2,
   Menu as MenuIcon, ImagePlus, MessageSquare, MoreVertical, Settings as SettingsIcon,
-  Megaphone, CheckCircle2, X, Users, ArrowDown, Flame, Mic,
+  Megaphone, CheckCircle2, X, Users, ArrowDown, Flame, Mic, Lock,
 } from 'lucide-react';
 
 // ============================================================================
@@ -95,7 +96,7 @@ function dbMsgToApp(m: DbMessage): Message {
     id: m.id,
     authorId: m.author_id ?? 'unknown',
     authorName: m.author_name,
-    role: m.author_role === 'admin' ? 'admin' : 'member',
+    role: m.author_role === 'admin' ? 'admin' : m.author_role === 'dev' ? 'dev' : 'member',
     text: m.text ?? '',
     ts: new Date(m.created_at).getTime(),
     anon: m.is_anonymous,
@@ -128,6 +129,7 @@ function dbRoomToApp(r: DbRoom, myId: string, profiles: DbProfile[]): Room {
     room.dmOtherName = other?.name;
     room.name = other?.name ?? r.name;
   }
+  room.commentsEnabled = r.comments_enabled;
   return room;
 }
 
@@ -169,6 +171,8 @@ export default function ClientApp() {
   const recTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   // Chat-list previews + typing indicators
   const [previews, setPreviews] = useState<Record<string, RoomPreview>>({});
+  // Channel comments (message_id → list, oldest first) for the active channel
+  const [channelComments, setChannelComments] = useState<Record<string, ChannelComment[]>>({});
   // Cache of loaded messages per room — survives room-list refreshes
   const messageCacheRef = useRef<Map<string, Message[]>>(new Map());
   const [typing, setTyping] = useState<Record<string, Record<string, { name: string; ts: number }>>>({});
@@ -369,6 +373,38 @@ export default function ClientApp() {
     });
     return () => { cancelled = true; unsub(); unsubPin(); };
   }, [active, user, loadingRooms, roomPrefs, playSound, settings.desktopNotifications]);
+
+  // Channel comments: load + realtime for the active channel
+  useEffect(() => {
+    if (!active || !user) return;
+    const isActiveChannel = rooms.some(r => r.id === active && r.kind === 'channel');
+    if (!isActiveChannel) {
+      setChannelComments({});
+      return;
+    }
+    let cancelled = false;
+    loadChannelComments(active).then(list => {
+      if (cancelled) return;
+      const byMsg: Record<string, ChannelComment[]> = {};
+      for (const c of list) (byMsg[c.message_id] ??= []).push(c);
+      setChannelComments(byMsg);
+    });
+    const unsub = subscribeToRoomComments(
+      active,
+      (c) => setChannelComments(prev => {
+        const list = prev[c.message_id] ?? [];
+        if (list.some(x => x.id === c.id)) return prev;
+        return { ...prev, [c.message_id]: [...list, c] };
+      }),
+      (id) => setChannelComments(prev => {
+        const next: Record<string, ChannelComment[]> = {};
+        for (const [mid, list] of Object.entries(prev)) next[mid] = list.filter(x => x.id !== id);
+        return next;
+      }),
+    );
+    return () => { cancelled = true; unsub(); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [active, user]);
 
   // Ably poll events
   useEffect(() => {
@@ -584,6 +620,34 @@ export default function ClientApp() {
   };
 
   const toggleAnon = () => setAnon(prev => !prev);
+
+  // ---- Channel comments ----
+  const addComment = async (msgId: string, text: string) => {
+    if (!user || !activeRoom) return;
+    const clean = sanitizeText(text, MAX_MSG_LEN);
+    if (!clean) return;
+    const inserted = await insertChannelComment(msgId, activeRoom.id, user.id, user.name, clean);
+    if (!inserted) {
+      toast.error(t('cmt.failed'));
+      return;
+    }
+    setChannelComments(prev => {
+      const list = prev[msgId] ?? [];
+      if (list.some(x => x.id === inserted.id)) return prev;
+      return { ...prev, [msgId]: [...list, inserted] };
+    });
+  };
+
+  const removeComment = async (comment: ChannelComment) => {
+    const ok = await deleteChannelComment(comment.id);
+    if (!ok) return;
+    toast(t('cmt.deleted'));
+    setChannelComments(prev => {
+      const next: Record<string, ChannelComment[]> = {};
+      for (const [mid, list] of Object.entries(prev)) next[mid] = list.filter(x => x.id !== comment.id);
+      return next;
+    });
+  };
 
   const deleteRoom = async (id: string) => {
     try {
@@ -857,7 +921,7 @@ export default function ClientApp() {
     toast.success(t('anon.answerSent'));
   };
 
-  const updateProfile = async (name: string, role: 'member' | 'admin', avatar?: string) => {
+  const updateProfile = async (name: string, role: Role, avatar?: string) => {
     if (!user) return false;
     const cleanName = sanitizeText(name, 32);
     if (!cleanName) { toast.error(t('profile.nameEmpty')); return false; }
@@ -1085,7 +1149,8 @@ export default function ClientApp() {
     return <AuthScreen onSuccess={() => {}} />;
   }
 
-  const isAdmin = user.role === 'admin';
+  const isDev = user.role === 'dev';
+  const isAdmin = user.role === 'admin' || isDev;
   const activePinned = pinned && activeRoom && pinned.room === activeRoom.id ? pinned : null;
   const items = activeRoom?.messages ?? [];
   const roomPolls = polls.filter(p => activeRoom && p.room === activeRoom.id);
@@ -1094,6 +1159,18 @@ export default function ClientApp() {
   const myMembershipRole = activeRoom
     ? roomMemberships.find(m => m.room_id === activeRoom.id && m.user_id === user.id)?.role ?? null
     : null;
+
+  // Who may post into a channel: owner, room admins, global admins and dev.
+  // Regular members get a read-only composer lock (enforced again by RLS).
+  const canPostToRoom = (r: Room | undefined): boolean => {
+    if (!r) return false;
+    if (r.kind !== 'channel') return true;
+    if (isAdmin) return true;
+    if (r.createdBy === user.id) return true;
+    const m = roomMemberships.find(x => x.room_id === r.id && x.user_id === user.id);
+    return m?.role === 'admin';
+  };
+  const canPostInActive = canPostToRoom(activeRoom);
 
   // Group messages by day
   const groupedItems: { date: string; items: Message[] }[] = [];
@@ -1247,8 +1324,17 @@ export default function ClientApp() {
                       <MessageSquare className="size-9 text-primary" />
                     </div>
                   </div>
-                  <p className="text-base font-semibold">{t('room.empty')}</p>
-                  <p className="text-sm text-muted-foreground mt-1">{t('room.emptyHint')}</p>
+                  {activeRoom ? (
+                    <>
+                      <p className="text-base font-semibold">{t('room.empty')}</p>
+                      <p className="text-sm text-muted-foreground mt-1">{t('room.emptyHint')}</p>
+                    </>
+                  ) : (
+                    <>
+                      <p className="text-base font-semibold">{t('room.nothingSelected')}</p>
+                      <p className="text-sm text-muted-foreground mt-1">{t('room.selectHint')}</p>
+                    </>
+                  )}
                 </div>
               )}
 
@@ -1280,6 +1366,15 @@ export default function ClientApp() {
                         onUnpin={activePinned ? unpin : undefined}
                         onDelete={(m) => deleteMessage(m)}
                         onEdit={(m) => startEdit(m)}
+                        canModerate={isDev}
+                        channelMode={activeRoom?.kind === 'channel'}
+                        comments={activeRoom?.kind === 'channel' ? (channelComments[it.id] ?? []) : undefined}
+                        commentsAllowed={activeRoom?.kind === 'channel'
+                          ? (activeRoom.commentsEnabled !== false || canPostInActive)
+                          : false}
+                        canModerateComments={canPostInActive}
+                        onAddComment={activeRoom?.kind === 'channel' ? addComment : undefined}
+                        onDeleteComment={removeComment}
                         onCopy={(text) => {
                           navigator.clipboard?.writeText(text);
                           toast(t('msg.copied'));
@@ -1320,7 +1415,8 @@ export default function ClientApp() {
             </button>
           )}
 
-          {/* Composer */}
+          {/* Composer — hidden when no room is selected */}
+          {activeRoom && (
           <div className="glass border-t border-border px-3 sm:px-4 pt-2.5" style={{ paddingBottom: 'max(0.625rem, env(safe-area-inset-bottom))' }}>
             <div className="max-w-3xl mx-auto flex flex-col gap-2">
               {/* Anonymous mode chip */}
@@ -1384,7 +1480,16 @@ export default function ClientApp() {
                   </Button>
                 </div>
               )}
-              {rec.on ? (
+              {activeRoom?.kind === 'channel' && !canPostInActive ? (
+                /* Channel read-only: only owner/admins can post */
+                <div className="flex items-center gap-2.5 px-4 py-3 rounded-2xl bg-muted/40 border border-border text-sm">
+                  <Lock className="size-4 text-muted-foreground shrink-0" />
+                  <div className="min-w-0">
+                    <div className="font-medium truncate">{t('channel.postLocked')}</div>
+                    <div className="text-xs text-muted-foreground truncate">{t('channel.postLockedHint')}</div>
+                  </div>
+                </div>
+              ) : rec.on ? (
                 /* Voice recording bar */
                 <div className="flex items-center gap-3 h-[46px] px-4 rounded-2xl bg-destructive/10 border border-destructive/30">
                   <span className="rec-dot size-3 rounded-full bg-destructive shrink-0" />
@@ -1429,12 +1534,16 @@ export default function ClientApp() {
                           <X className="size-4 mr-2" /> {t('room.unpin')}
                         </DropdownMenuItem>
                       )}
-                      <DropdownMenuItem onClick={() => setModalMode('poll')}>
-                        <BarChart3 className="size-4 mr-2" /> {t('poll.new')}
-                      </DropdownMenuItem>
-                      <DropdownMenuItem onClick={() => setModalMode('anon')}>
-                        <EyeOff className="size-4 mr-2" /> {t('anon.new')}
-                      </DropdownMenuItem>
+                      {activeRoom?.kind !== 'channel' && (
+                        <DropdownMenuItem onClick={() => setModalMode('poll')}>
+                          <BarChart3 className="size-4 mr-2" /> {t('poll.new')}
+                        </DropdownMenuItem>
+                      )}
+                      {activeRoom?.kind !== 'channel' && (
+                        <DropdownMenuItem onClick={() => setModalMode('anon')}>
+                          <EyeOff className="size-4 mr-2" /> {t('anon.new')}
+                        </DropdownMenuItem>
+                      )}
                       <DropdownMenuItem onClick={toggleAnon} className={anon ? 'text-primary' : ''}>
                         <EyeOff className="size-4 mr-2" /> {t('msg.anonymous')}
                         {anon && <CheckCircle2 className="size-3.5 ml-auto" />}
@@ -1505,6 +1614,7 @@ export default function ClientApp() {
               )}
             </div>
           </div>
+          )}
         </main>
       </div>
 
@@ -1534,7 +1644,7 @@ export default function ClientApp() {
         <ForwardModal
           onClose={() => { setModalMode(null); setForwardMsg(null); }}
           onForward={forwardToRoom}
-          rooms={rooms}
+          rooms={rooms.filter(canPostToRoom)}
           currentRoomId={activeRoom?.id}
           t={t}
         />
@@ -1552,6 +1662,40 @@ export default function ClientApp() {
           memberSince={profiles.find(p => p.id === user.id)?.created_at}
           onUpdateProfile={(name, avatar) => updateProfile(name, user.role, avatar)}
           onLogout={handleLogout}
+          devInfo={{
+            userId: user.id,
+            email: user.email ?? '',
+            role: user.role,
+            socketConnected: isConnected,
+            onlineCount: onlineMembers.length,
+            roomsCount: rooms.length,
+            profilesCount: profiles.length,
+            activeRoomId: activeRoom?.id ?? '',
+            activeRoomKind: activeRoom ? `${activeRoom.kind}/${activeRoom.roomType}` : '',
+            messagesCount: rooms.reduce((s, r) => s + r.messages.length, 0),
+            onRefreshRooms: () => { refreshRooms(); toast(t('dev.roomsRefreshed')); },
+            onClearCaches: () => {
+              try {
+                localStorage.removeItem('holler_v1');
+                localStorage.removeItem('holler_local_settings_v1');
+                localStorage.removeItem('holler_room_prefs_v1');
+              } catch { /* ignore */ }
+              toast(t('dev.cachesCleared'));
+              setTimeout(() => window.location.reload(), 600);
+            },
+            getSnapshot: () => JSON.stringify({
+              user: { id: user.id, name: user.name, role: user.role, email: user.email },
+              connection: { socket: isConnected, online: onlineMembers.length },
+              rooms: rooms.map(r => ({
+                id: r.id, name: r.name, kind: r.kind, roomType: r.roomType,
+                commentsEnabled: r.commentsEnabled, createdBy: r.createdBy,
+                messages: r.messages.length,
+              })),
+              profiles: profiles.length,
+              commentCounts: Object.fromEntries(Object.entries(channelComments).map(([k, v]) => [k, v.length])),
+              previews,
+            }, null, 2),
+          }}
         />
       )}
       {modalMode === 'roomSettings' && activeRoom && (
@@ -1567,6 +1711,13 @@ export default function ClientApp() {
           onLeaveGroup={handleLeaveGroup}
           onAddMembers={handleAddMembers}
           onRemoveMember={handleRemoveMember}
+          onToggleComments={async (v) => {
+            if (!activeRoom) return false;
+            const upd = await apiUpdateRoom(activeRoom.id, { comments_enabled: v });
+            if (!upd) return false;
+            setRooms(prev => prev.map(r => r.id === activeRoom.id ? { ...r, commentsEnabled: v } : r));
+            return true;
+          }}
           t={t}
           dateLocale={dateLocale}
         />

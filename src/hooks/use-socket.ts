@@ -12,7 +12,7 @@ export interface OnlineMember {
 }
 
 interface UseSocketOptions {
-  user: { id: string; name: string; role: 'member' | 'admin'; avatar?: string } | null;
+  user: { id: string; name: string; role: 'member' | 'admin' | 'dev'; avatar?: string } | null;
 }
 
 /**

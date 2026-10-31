@@ -10,7 +10,7 @@ export interface DbProfile {
   id: string;
   email: string;
   name: string;
-  role: 'member' | 'admin';
+  role: 'member' | 'admin' | 'dev';
   avatar: string | null;
   secret_question: string | null;
   created_at: string;
@@ -27,6 +27,7 @@ export interface DbRoom {
   dm_user2: string | null;
   created_by: string | null;
   created_at: string;
+  comments_enabled: boolean;
 }
 
 export interface DbMessage {
@@ -321,6 +322,7 @@ export interface RoomPatch {
   name?: string;
   about?: string | null;
   category?: string | null;
+  comments_enabled?: boolean;
 }
 
 /** Persist room settings; returns the updated row or null on failure. */
@@ -425,6 +427,68 @@ export async function unpinDb(roomId: string): Promise<boolean> {
 }
 
 // ============================================================================
+// Channel comments — discussion threads under channel posts
+// ============================================================================
+
+export interface ChannelComment {
+  id: string;
+  message_id: string;
+  room_id: string;
+  author_id: string | null;
+  author_name: string;
+  text: string;
+  created_at: string;
+}
+
+/** Load all comments for a room, oldest first. */
+export async function loadChannelComments(roomId: string): Promise<ChannelComment[]> {
+  const { data, error } = await supabase
+    .from('channel_comments')
+    .select('*')
+    .eq('room_id', roomId)
+    .order('created_at', { ascending: true })
+    .limit(1000);
+  if (error) {
+    console.warn('[api] loadChannelComments error:', error.message);
+    return [];
+  }
+  return (data ?? []) as ChannelComment[];
+}
+
+/** Add a comment to a channel post. */
+export async function insertChannelComment(
+  messageId: string,
+  roomId: string,
+  authorId: string,
+  authorName: string,
+  text: string,
+): Promise<ChannelComment | null> {
+  const { data, error } = await supabase
+    .from('channel_comments')
+    .insert({ message_id: messageId, room_id: roomId, author_id: authorId, author_name: authorName, text })
+    .select()
+    .single();
+  if (error) {
+    console.warn('[api] insertChannelComment error:', error.message);
+    return null;
+  }
+  return data as ChannelComment;
+}
+
+/** Delete a comment (own / channel admin / dev — enforced by RLS). */
+export async function deleteChannelComment(commentId: string): Promise<boolean> {
+  const { error } = await supabase
+    .from('channel_comments')
+    .delete()
+    .eq('id', commentId);
+  if (error) {
+    console.warn('[api] deleteChannelComment error:', error.message);
+    return false;
+  }
+  return true;
+}
+
+// ============================================================================
 // Realtime subscriptions
 // ============================================================================
 
@@ -465,6 +529,27 @@ export function subscribeToPin(roomId: string, onChange: () => void): () => void
       'postgres_changes',
       { event: '*', schema: 'public', table: 'pins', filter: `room_id=eq.${roomId}` },
       () => onChange(),
+    )
+    .subscribe();
+  return () => { supabase.removeChannel(channel); };
+}
+
+export function subscribeToRoomComments(
+  roomId: string,
+  onInsert: (c: ChannelComment) => void,
+  onDelete: (id: string) => void,
+): () => void {
+  const channel = supabase
+    .channel(`comments:${roomId}`)
+    .on(
+      'postgres_changes',
+      { event: 'INSERT', schema: 'public', table: 'channel_comments', filter: `room_id=eq.${roomId}` },
+      (payload) => onInsert(payload.new as ChannelComment),
+    )
+    .on(
+      'postgres_changes',
+      { event: 'DELETE', schema: 'public', table: 'channel_comments', filter: `room_id=eq.${roomId}` },
+      (payload) => onDelete((payload.old as { id: string }).id),
     )
     .subscribe();
   return () => { supabase.removeChannel(channel); };

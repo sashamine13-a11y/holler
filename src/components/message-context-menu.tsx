@@ -14,6 +14,8 @@ interface MessageContextMenuProps {
   isOwn: boolean;
   hasText: boolean;
   isPinned: boolean;
+  /** Allows deleting other people's messages (dev role) */
+  canDelete?: boolean;
   onReply?: () => void;
   onPin?: () => void;
   onUnpin?: () => void;
@@ -29,6 +31,7 @@ export function MessageContextMenu({
   isOwn,
   hasText,
   isPinned,
+  canDelete,
   onReply,
   onPin,
   onUnpin,
@@ -84,7 +87,7 @@ export function MessageContextMenu({
             </ContextMenuItem>
           )
         )}
-        {isOwn && onDelete && (
+        {(isOwn || canDelete) && onDelete && (
           <>
             <ContextMenuSeparator />
             <ContextMenuItem onClick={onDelete} className="text-destructive">

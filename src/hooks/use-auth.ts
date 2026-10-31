@@ -8,7 +8,7 @@ export interface AuthUser {
   id: string;
   email: string;
   name: string;
-  role: 'member' | 'admin';
+  role: 'member' | 'admin' | 'dev';
   avatar?: string;
 }
 

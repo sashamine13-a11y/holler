@@ -31,6 +31,7 @@ export function RoomSettingsModal(props: {
   globalAdmin: boolean;
   myMembershipRole: 'member' | 'admin' | null;
   onUpdateRoom: (patch: { name: string; about: string; category: string }) => Promise<boolean>;
+  onToggleComments?: (enabled: boolean) => Promise<boolean>;
   onDeleteRoom: () => void;
   onLeaveGroup: () => void;
   onAddMembers: (ids: string[]) => Promise<boolean>;
@@ -40,7 +41,7 @@ export function RoomSettingsModal(props: {
 }) {
   const {
     onClose, room, profiles, currentUserId, globalAdmin, myMembershipRole,
-    onUpdateRoom, onDeleteRoom, onLeaveGroup, onAddMembers, onRemoveMember, t, dateLocale,
+    onUpdateRoom, onToggleComments, onDeleteRoom, onLeaveGroup, onAddMembers, onRemoveMember, t, dateLocale,
   } = props;
 
   const isGroup = room.roomType === 'group';
@@ -49,7 +50,9 @@ export function RoomSettingsModal(props: {
     && (room.createdBy === currentUserId || myMembershipRole === 'admin' || globalAdmin);
   const canEditFields = isDm ? false
     : isGroup ? canManageMembers
-    : (globalAdmin || room.createdBy === currentUserId);
+    : room.kind === 'channel'
+      ? (globalAdmin || room.createdBy === currentUserId || myMembershipRole === 'admin')
+      : (globalAdmin || room.createdBy === currentUserId);
   const canDelete = isDm ? true
     : isGroup ? canManageMembers
     : room.kind === 'channel' ? globalAdmin
@@ -420,6 +423,19 @@ export function RoomSettingsModal(props: {
               <Hourglass className="size-3" /> {t('room.adminTools')}
             </Label>
             <div className="rounded-xl border border-border bg-muted/30 p-3 space-y-2">
+              {/* Channel comments toggle — persisted in rooms.comments_enabled */}
+              {room.kind === 'channel' && onToggleComments && (
+                <div className="flex items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="text-sm font-medium">{t('room.comments')}</div>
+                    <p className="text-xs text-muted-foreground">{t('room.commentsHint')}</p>
+                  </div>
+                  <Switch
+                    checked={room.commentsEnabled !== false}
+                    onCheckedChange={(v) => onToggleComments(v)}
+                  />
+                </div>
+              )}
               <div className="flex items-center justify-between gap-3">
                 <div className="min-w-0">
                   <div className="text-sm font-medium">{t('room.slowMode')}</div>

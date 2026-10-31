@@ -1,6 +1,6 @@
 'use client';
 
-export type Role = 'member' | 'admin';
+export type Role = 'member' | 'admin' | 'dev';
 export type RoomKind = 'channel' | 'chat';
 export type RoomCategory = string;
 
@@ -65,6 +65,7 @@ export interface Room {
   groupMembers?: string[];
   createdBy?: string;
   createdAt?: number;
+  commentsEnabled?: boolean;
 }
 
 // ============================================================================
