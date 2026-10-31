@@ -10,6 +10,7 @@ export interface AuthUser {
   name: string;
   role: 'member' | 'admin' | 'dev';
   avatar?: string;
+  username?: string;
 }
 
 /**
@@ -83,6 +84,7 @@ export function useAuth() {
           name: profile.name,
           role: profile.role || 'member',
           avatar: profile.avatar,
+          username: profile.username,
         });
       } else {
         // Профиль ещё не создан — используем данные из auth

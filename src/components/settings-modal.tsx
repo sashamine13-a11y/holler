@@ -14,10 +14,10 @@ import {
   useLocalSettings,
   type AccentColor, type FontSize, type Wallpaper, type SoundPreset,
 } from '@/lib/local-settings';
-import { AVATAR_DIM, AVATAR_MAX_BYTES, MAX_NAME_LEN, type User } from '@/lib/chat-types';
+import { AVATAR_DIM, AVATAR_MAX_BYTES, MAX_NAME_LEN, MAX_USERNAME_LEN, MIN_USERNAME_LEN, type User } from '@/lib/chat-types';
 import { toast } from 'sonner';
 import {
-  Bell, Check, Database, ImagePlus, KeyRound, Lock, LogOut, Palette,
+  AtSign, Bell, Check, Database, ImagePlus, KeyRound, Lock, LogOut, Palette,
   ShieldCheck, Sun, Volume2, Wand2, Wrench, Terminal, Wifi, Users, MessageSquare,
 } from 'lucide-react';
 
@@ -53,7 +53,7 @@ export function SettingsModal(props: {
   onClose: () => void;
   user: User;
   memberSince?: string;
-  onUpdateProfile: (name: string, avatar?: string) => Promise<boolean>;
+  onUpdateProfile: (name: string, username: string, avatar?: string) => Promise<boolean>;
   onLogout: () => void;
   devInfo?: DevPanelInfo;
 }) {
@@ -63,10 +63,25 @@ export function SettingsModal(props: {
 
   // profile section
   const [name, setName] = useState(user.name);
+  const [username, setUsername] = useState(user.username ?? '');
   const [avatar, setAvatar] = useState<string | undefined>(user.avatar);
   const [savingProfile, setSavingProfile] = useState(false);
-  const profileDirty = name.trim() !== user.name || avatar !== user.avatar;
+  const profileDirty = name.trim() !== user.name
+    || username.trim().toLowerCase() !== (user.username ?? '').toLowerCase()
+    || avatar !== user.avatar;
   const fileRef = useRef<HTMLInputElement>(null);
+
+  // username live validation
+  const unameClean = username.trim().toLowerCase();
+  const unameValid = /^[a-z0-9_]{3,20}$/.test(unameClean);
+  const unameChanged = unameClean !== (user.username ?? '').toLowerCase();
+  const unameError = !unameClean
+    ? null
+    : unameClean.length < MIN_USERNAME_LEN
+      ? t('profile.usernameTooShort')
+      : !unameValid
+        ? t('profile.usernameInvalid')
+        : null;
 
   // password section
   const [pwOpen, setPwOpen] = useState(false);
@@ -112,8 +127,31 @@ export function SettingsModal(props: {
   const saveProfile = async () => {
     if (!profileDirty || savingProfile) return;
     if (!name.trim()) { toast.error(t('profile.nameEmpty')); return; }
+    const uname = username.trim().toLowerCase();
+    if (uname.length < MIN_USERNAME_LEN) { toast.error(t('profile.usernameTooShort')); return; }
+    if (!/^[a-z0-9_]{3,20}$/.test(uname)) { toast.error(t('profile.usernameInvalid')); return; }
     setSavingProfile(true);
-    const ok = await onUpdateProfile(name.trim(), avatar);
+    // uniqueness check (DB unique index is the final guard)
+    if (uname !== (user.username ?? '').toLowerCase()) {
+      try {
+        const { supabase } = await import('@/lib/supabase');
+        if (supabase) {
+          const { count } = await supabase
+            .from('profiles')
+            .select('id', { count: 'exact', head: true })
+            .neq('id', user.id)
+            .ilike('username', uname);
+          if (count && count > 0) {
+            setSavingProfile(false);
+            toast.error(t('profile.usernameTaken'));
+            return;
+          }
+        }
+      } catch (e) {
+        console.warn('username uniqueness check failed:', e);
+      }
+    }
+    const ok = await onUpdateProfile(name.trim(), uname, avatar);
     setSavingProfile(false);
     if (ok) toast.success(t('profile.saved'));
   };
@@ -229,8 +267,30 @@ export function SettingsModal(props: {
               onChange={(e) => setName(e.target.value)}
             />
           </div>
+          <div className="mt-3">
+            <Label htmlFor="st-username" className="flex items-center gap-1.5">
+              <AtSign className="size-3.5 text-muted-foreground" />
+              {t('profile.username')}
+            </Label>
+            <div className="relative">
+              <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">@</span>
+              <Input
+                id="st-username"
+                className="pl-7"
+                maxLength={MAX_USERNAME_LEN}
+                value={username}
+                onChange={(e) => setUsername(e.target.value.replace(/\s/g, '').toLowerCase())}
+                spellCheck={false}
+                autoComplete="off"
+                aria-invalid={unameChanged && unameError ? true : undefined}
+              />
+            </div>
+            <p className={`text-xs mt-1 ${unameChanged && unameError ? 'text-destructive' : 'text-muted-foreground'}`}>
+              {unameChanged && unameError ? unameError : t('profile.usernameHint')}
+            </p>
+          </div>
           {profileDirty && (
-            <Button className="mt-2 w-full" onClick={saveProfile} disabled={savingProfile}>
+            <Button className="mt-2 w-full" onClick={saveProfile} disabled={savingProfile || (unameChanged && Boolean(unameError))}>
               <Check className="size-4 mr-1.5" /> {t('profile.save')}
             </Button>
           )}
@@ -608,24 +668,24 @@ export function SettingsModal(props: {
 
               <div>
                 <div className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-1">{t('dev.actions')}</div>
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-1.5">
+                <div className="flex flex-col gap-1.5">
                   <Button
-                    variant="outline" size="sm" className="h-8 text-xs"
+                    variant="outline" size="sm" className="h-8 text-xs w-full justify-start"
                     onClick={() => {
                       navigator.clipboard?.writeText(devInfo.getSnapshot());
                       toast.success(t('dev.snapshotCopied'));
                     }}
                   >
-                    <Terminal className="size-3.5 mr-1" /> {t('dev.copySnapshot')}
+                    <Terminal className="size-3.5 mr-1.5 shrink-0" /> {t('dev.copySnapshot')}
                   </Button>
-                  <Button variant="outline" size="sm" className="h-8 text-xs" onClick={devInfo.onRefreshRooms}>
-                    <Database className="size-3.5 mr-1" /> {t('dev.refreshRooms')}
+                  <Button variant="outline" size="sm" className="h-8 text-xs w-full justify-start" onClick={devInfo.onRefreshRooms}>
+                    <Database className="size-3.5 mr-1.5 shrink-0" /> {t('dev.refreshRooms')}
                   </Button>
                   <Button
-                    variant="outline" size="sm" className="h-8 text-xs text-destructive border-destructive/30 hover:bg-destructive/10 hover:text-destructive"
+                    variant="outline" size="sm" className="h-8 text-xs w-full justify-start text-destructive border-destructive/30 hover:bg-destructive/10 hover:text-destructive"
                     onClick={devInfo.onClearCaches}
                   >
-                    <Wand2 className="size-3.5 mr-1" /> {t('dev.clearCaches')}
+                    <Wand2 className="size-3.5 mr-1.5 shrink-0" /> {t('dev.clearCaches')}
                   </Button>
                 </div>
               </div>

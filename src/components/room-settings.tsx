@@ -97,7 +97,10 @@ export function RoomSettingsModal(props: {
     const q = memberQuery.trim().toLowerCase();
     return profiles
       .filter(p => !memberIds.has(p.id))
-      .filter(p => !q || p.name.toLowerCase().includes(q) || (p.email ?? '').toLowerCase().includes(q));
+      .filter(p => !q
+        || p.name.toLowerCase().includes(q)
+        || (p.username ?? '').toLowerCase().includes(q)
+        || (p.email ?? '').toLowerCase().includes(q));
   }, [profiles, memberIds, memberQuery]);
 
   const otherUser = isDm
@@ -300,6 +303,7 @@ export function RoomSettingsModal(props: {
                         <Avatar user={{ id: p.id, name: p.name, avatar: p.avatar ?? undefined }} size={26} />
                         <div className="flex-1 min-w-0">
                           <div className="text-[13px] font-medium truncate">{p.name}</div>
+                          <div className="text-[11px] text-muted-foreground truncate">@{p.username || p.email?.split('@')[0]}</div>
                         </div>
                         <span className={`size-4 rounded-md border flex items-center justify-center shrink-0
                           ${on ? 'bg-primary border-primary text-primary-foreground' : 'border-border'}`}>
@@ -342,7 +346,7 @@ export function RoomSettingsModal(props: {
                         <span className="truncate">{displayName}</span>
                         {isMe && <span className="text-[10px] text-muted-foreground font-normal">{t('room.youTag')}</span>}
                       </div>
-                      <div className="text-[11px] text-muted-foreground truncate">{p?.email}</div>
+                      <div className="text-[11px] text-muted-foreground truncate">@{p?.username || (p?.email ? p.email.split('@')[0] : 'user')}</div>
                     </div>
                     {isOwner ? (
                       <Badge variant="outline" className="text-[9px] px-1 py-0 h-4 gap-0.5 shrink-0 border-amber-500/50 text-amber-600">

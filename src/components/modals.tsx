@@ -7,13 +7,15 @@ import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Avatar } from '@/components/avatar';
+import { Badge } from '@/components/ui/badge';
 import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
 } from '@/components/ui/dialog';
 import type { DbProfile } from '@/lib/api';
-import { roomColor, MAX_ABOUT_LEN, type Room, type RoomKind } from '@/lib/chat-types';
+import { avColor, initials, roomColor, MAX_ABOUT_LEN, type Room, type RoomKind } from '@/lib/chat-types';
 import {
-  Forward, Megaphone, MessageSquare, Plus, Search, Users, User as UserIcon, X,
+  AtSign, Crown, Forward, Megaphone, MessageCircle, MessageSquare, Plus, Search,
+  Shield, Users, User as UserIcon, Wrench, X,
 } from 'lucide-react';
 
 // ============================================================================
@@ -250,7 +252,10 @@ export function CreateGroupModal(props: {
 
   const others = profiles.filter(p => p.id !== currentUserId);
   const filtered = others.filter(p =>
-    !query || p.name.toLowerCase().includes(query.toLowerCase()),
+    !query
+    || p.name.toLowerCase().includes(query.toLowerCase())
+    || (p.username ?? '').toLowerCase().includes(query.toLowerCase())
+    || (p.email ?? '').toLowerCase().includes(query.toLowerCase()),
   );
 
   const toggle = (id: string) => {
@@ -317,7 +322,7 @@ export function CreateGroupModal(props: {
                 <Avatar user={{ id: p.id, name: p.name, avatar: p.avatar ?? undefined }} size={28} />
                 <div className="flex-1 min-w-0">
                   <div className="text-sm font-medium truncate">{p.name}</div>
-                  <div className="text-xs text-muted-foreground truncate">{p.email}</div>
+                  <div className="text-xs text-muted-foreground truncate">@{p.username || p.email?.split('@')[0]}</div>
                 </div>
               </label>
             );
@@ -348,7 +353,10 @@ export function NewDmModal(props: {
   const [query, setQuery] = useState('');
   const others = profiles
     .filter(p => p.id !== currentUserId)
-    .filter(p => !query || p.name.toLowerCase().includes(query.toLowerCase()));
+    .filter(p => !query
+      || p.name.toLowerCase().includes(query.toLowerCase())
+      || (p.username ?? '').toLowerCase().includes(query.toLowerCase())
+      || (p.email ?? '').toLowerCase().includes(query.toLowerCase()));
 
   return (
     <ModalShell
@@ -384,7 +392,7 @@ export function NewDmModal(props: {
               <Avatar user={{ id: p.id, name: p.name, avatar: p.avatar ?? undefined }} size={32} />
               <div className="flex-1 min-w-0">
                 <div className="text-sm font-medium truncate">{p.name}</div>
-                <div className="text-xs text-muted-foreground truncate">{p.email}</div>
+                <div className="text-xs text-muted-foreground truncate">@{p.username || p.email?.split('@')[0]}</div>
               </div>
               <MessageSquare className="size-4 text-muted-foreground shrink-0 opacity-60" />
             </button>
@@ -461,6 +469,99 @@ export function ForwardModal(props: {
               <Forward className="size-4 text-muted-foreground shrink-0" />
             </button>
           ))}
+        </div>
+      </div>
+    </ModalShell>
+  );
+}
+
+// ============================================================================
+// UserProfileModal — view another user's profile (or your own)
+//   Entry points: sidebar people search, message author click
+// ============================================================================
+export function UserProfileModal(props: {
+  profile: DbProfile;
+  isOwn: boolean;
+  dateLocale: string;
+  onClose: () => void;
+  onStartDm?: (userId: string) => void;
+  onEditProfile?: () => void;
+  t: (key: string) => string;
+}) {
+  const { profile, isOwn, dateLocale, onClose, onStartDm, onEditProfile, t } = props;
+  const username = profile.username || profile.email?.split('@')[0] || 'user';
+
+  const joined = profile.created_at
+    ? new Date(profile.created_at).toLocaleDateString(dateLocale, { day: 'numeric', month: 'long', year: 'numeric' })
+    : null;
+
+  return (
+    <ModalShell title={t('profile.view')} onClose={onClose}>
+      <div className="space-y-4">
+        {/* Header: avatar + name + @username */}
+        <div className="flex flex-col items-center text-center pt-1">
+          {profile.avatar ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={profile.avatar}
+              alt={profile.name}
+              className="size-20 rounded-full object-cover ring-2 ring-background shadow-md"
+            />
+          ) : (
+            <div
+              className="size-20 rounded-full flex items-center justify-center font-bold text-white text-2xl shadow-md"
+              style={{ background: avColor(profile.id) }}
+            >
+              {initials(profile.name)}
+            </div>
+          )}
+          <div className="mt-2.5 flex items-center gap-1.5 flex-wrap justify-center">
+            <h2 className="text-lg font-semibold word-safe">{profile.name}</h2>
+            {profile.role === 'dev' && (
+              <Badge variant="secondary" className="text-[9px] px-1 py-0 h-4 gap-0.5 border-cyan-500/40 bg-cyan-500/10 text-cyan-600">
+                <Wrench className="size-2.5" /> {t('nav.devRole')}
+              </Badge>
+            )}
+            {profile.role === 'admin' && (
+              <Badge variant="secondary" className="text-[9px] px-1 py-0 h-4 gap-0.5">
+                <Shield className="size-2.5" /> {t('nav.adminRights')}
+              </Badge>
+            )}
+            {isOwn && (
+              <span className="text-[10px] text-muted-foreground font-normal">· {t('profile.isYou')}</span>
+            )}
+          </div>
+          <div className="text-sm text-muted-foreground flex items-center gap-1 mt-0.5">
+            <AtSign className="size-3.5" />
+            <span className="word-safe">{username}</span>
+          </div>
+        </div>
+
+        {/* Details */}
+        <div className="rounded-xl border border-border bg-muted/30 divide-y divide-border">
+          {joined && (
+            <div className="flex items-center justify-between gap-3 px-3 py-2.5 text-sm">
+              <span className="text-muted-foreground shrink-0">{t('profile.joined')}</span>
+              <span className="font-medium text-right">{joined}</span>
+            </div>
+          )}
+        </div>
+
+        {/* Actions */}
+        <div className="flex flex-col gap-2">
+          {!isOwn && onStartDm && (
+            <Button className="w-full" onClick={() => { onStartDm(profile.id); onClose(); }}>
+              <MessageCircle className="size-4 mr-1.5" /> {t('profile.message')}
+            </Button>
+          )}
+          {isOwn && onEditProfile && (
+            <Button className="w-full" onClick={() => { onEditProfile(); onClose(); }}>
+              <UserIcon className="size-4 mr-1.5" /> {t('profile.editProfile')}
+            </Button>
+          )}
+          <Button variant="outline" className="w-full" onClick={onClose}>
+            {t('profile.close')}
+          </Button>
         </div>
       </div>
     </ModalShell>

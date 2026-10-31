@@ -85,10 +85,14 @@ export function Sidebar(props: {
   const isUnread = (r: Room) =>
     !q && r.id !== active && !!previews[r.id] && previews[r.id].ts > (seen[r.id] ?? 0);
 
-  // People matches for the search (start a DM straight from results)
+  // People matches for the search (open profile / start a DM from results)
   const peopleMatches = q
     ? profiles
-        .filter(p => p.id !== user.id && (p.name.toLowerCase().includes(q) || (p.email ?? '').toLowerCase().includes(q)))
+        .filter(p => p.id !== user.id && (
+          p.name.toLowerCase().includes(q)
+          || (p.username ?? '').toLowerCase().includes(q)
+          || (p.email ?? '').toLowerCase().includes(q)
+        ))
         .slice(0, 8)
     : [];
 
@@ -286,7 +290,7 @@ export function Sidebar(props: {
                   <Avatar user={{ id: p.id, name: p.name, avatar: p.avatar ?? undefined }} size={32} />
                   <div className="flex-1 min-w-0">
                     <div className="text-[13px] font-medium truncate">{p.name}</div>
-                    <div className="text-[11px] text-muted-foreground truncate">{p.email}</div>
+                    <div className="text-[11px] text-muted-foreground truncate">@{p.username || p.email?.split('@')[0]}</div>
                   </div>
                   <MessageSquare className="size-3.5 text-muted-foreground shrink-0 opacity-60" />
                 </button>
@@ -309,7 +313,7 @@ export function Sidebar(props: {
             <div className="min-w-0 flex-1">
               <div className="text-sm font-medium truncate">{user.name}</div>
               <div className="text-[11px] text-muted-foreground truncate">
-                {user.role === 'dev' ? t('nav.devRole') : user.role === 'admin' ? t('nav.adminRights') : t('nav.member')}
+                {user.username ? `@${user.username}` : (user.role === 'dev' ? t('nav.devRole') : user.role === 'admin' ? t('nav.adminRights') : t('nav.member'))}
               </div>
             </div>
             <Settings className="size-4 text-muted-foreground shrink-0" />

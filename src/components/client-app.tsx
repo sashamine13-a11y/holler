@@ -21,7 +21,7 @@ import { Sidebar } from '@/components/sidebar';
 import { MessageItem, PollCard, AnonCard } from '@/components/chat-panels';
 import { Avatar } from '@/components/avatar';
 import {
-  AddRoomModal, AnonModal, CreateGroupModal, ForwardModal, NewDmModal, PollModal,
+  AddRoomModal, AnonModal, CreateGroupModal, ForwardModal, NewDmModal, PollModal, UserProfileModal,
 } from '@/components/modals';
 import { RoomSettingsModal } from '@/components/room-settings';
 import { SettingsModal } from '@/components/settings-modal';
@@ -155,6 +155,7 @@ export default function ClientApp() {
   const [pendingImage, setPendingImage] = useState<string | undefined>();
   const [pendingMediaType, setPendingMediaType] = useState<'image' | 'video' | 'audio'>('image');
   const [modalMode, setModalMode] = useState<ModalMode>(null);
+  const [viewingProfileId, setViewingProfileId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [replyTo, setReplyTo] = useState<Message | null>(null);
   const [forwardMsg, setForwardMsg] = useState<Message | null>(null);
@@ -193,13 +194,14 @@ export default function ClientApp() {
   useEffect(() => {
     if (authUser) {
       setUser(prev => {
-        if (prev && prev.id === authUser.id && prev.name === authUser.name) return prev;
+        if (prev && prev.id === authUser.id && prev.name === authUser.name && prev.username === authUser.username) return prev;
         return {
           id: authUser.id,
           name: authUser.name,
           role: authUser.role,
           avatar: authUser.avatar,
           email: authUser.email,
+          username: authUser.username,
         };
       });
     } else if (!authLoading) {
@@ -715,6 +717,11 @@ export default function ClientApp() {
     toast.success(t('room.dmCreated'));
   };
 
+  const openUserProfile = (userId: string) => {
+    if (!profiles.some(p => p.id === userId)) return;
+    setViewingProfileId(userId);
+  };
+
   const createGroup = async (name: string, memberIds: string[]) => {
     if (!user) return;
     const cleanName = sanitizeText(name, 64);
@@ -921,23 +928,25 @@ export default function ClientApp() {
     toast.success(t('anon.answerSent'));
   };
 
-  const updateProfile = async (name: string, role: Role, avatar?: string) => {
+  const updateProfile = async (name: string, username: string, role: Role, avatar?: string) => {
     if (!user) return false;
     const cleanName = sanitizeText(name, 32);
     if (!cleanName) { toast.error(t('profile.nameEmpty')); return false; }
+    const cleanUsername = sanitizeText(username, 20).toLowerCase();
     const cleanAvatar = safeDataUrl(avatar, 100_000);
     try {
       const { supabase } = await import('@/lib/supabase');
       await supabase.from('profiles').update({
         name: cleanName,
+        username: cleanUsername,
         role,
         avatar: cleanAvatar ?? null,
       }).eq('id', user.id);
     } catch (e) {
       console.warn('Profile update failed:', e);
     }
-    setUser(prev => prev ? { ...prev, name: cleanName, role, avatar: cleanAvatar } : prev);
-    setProfiles(prev => prev.map(p => p.id === user.id ? { ...p, name: cleanName, role, avatar: cleanAvatar ?? null } : p));
+    setUser(prev => prev ? { ...prev, name: cleanName, username: cleanUsername, role, avatar: cleanAvatar } : prev);
+    setProfiles(prev => prev.map(p => p.id === user.id ? { ...p, name: cleanName, username: cleanUsername, role, avatar: cleanAvatar ?? null } : p));
     return true;
   };
 
@@ -1205,7 +1214,7 @@ export default function ClientApp() {
           onSettings={() => setModalMode('settings')}
           onlineMembers={onlineMembers}
           isConnected={isConnected}
-          onMemberClick={startDm}
+          onMemberClick={openUserProfile}
           profiles={profiles}
           previews={previews}
           seen={prefs.seen ?? {}}
@@ -1379,6 +1388,7 @@ export default function ClientApp() {
                           navigator.clipboard?.writeText(text);
                           toast(t('msg.copied'));
                         }}
+                        onAuthorClick={(uid) => openUserProfile(uid)}
                         t={t}
                       />
                     );
@@ -1660,7 +1670,7 @@ export default function ClientApp() {
           onClose={() => setModalMode(null)}
           user={user}
           memberSince={profiles.find(p => p.id === user.id)?.created_at}
-          onUpdateProfile={(name, avatar) => updateProfile(name, user.role, avatar)}
+          onUpdateProfile={(name, username, avatar) => updateProfile(name, username, user.role, avatar)}
           onLogout={handleLogout}
           devInfo={{
             userId: user.id,
@@ -1684,7 +1694,7 @@ export default function ClientApp() {
               setTimeout(() => window.location.reload(), 600);
             },
             getSnapshot: () => JSON.stringify({
-              user: { id: user.id, name: user.name, role: user.role, email: user.email },
+              user: { id: user.id, name: user.name, role: user.role, email: user.email, username: user.username },
               connection: { socket: isConnected, online: onlineMembers.length },
               rooms: rooms.map(r => ({
                 id: r.id, name: r.name, kind: r.kind, roomType: r.roomType,
@@ -1722,6 +1732,22 @@ export default function ClientApp() {
           dateLocale={dateLocale}
         />
       )}
+      {viewingProfileId && user && (() => {
+        const p = profiles.find(pr => pr.id === viewingProfileId);
+        if (!p) return null;
+        const isOwn = p.id === user.id;
+        return (
+          <UserProfileModal
+            profile={p}
+            isOwn={isOwn}
+            dateLocale={dateLocale}
+            onClose={() => setViewingProfileId(null)}
+            onStartDm={isOwn ? undefined : (uid) => { setViewingProfileId(null); startDm(uid); }}
+            onEditProfile={isOwn ? () => setModalMode('settings') : undefined}
+            t={t}
+          />
+        );
+      })()}
     </TooltipProvider>
   );
 }

@@ -36,6 +36,7 @@ export function MessageItem(props: {
   onForward?: (msg: Message) => void;
   onCopy?: (text: string) => void;
   onEdit?: (msg: Message) => void;
+  onAuthorClick?: (authorId: string) => void;
   t: (key: string) => string;
   // dev role: can delete any message
   canModerate?: boolean;
@@ -50,7 +51,7 @@ export function MessageItem(props: {
   const {
     msg, currentUserId, showHeader, isPinned, isEditing, editText,
     onEditChange, onEditSave, onEditCancel,
-    onReply, onPin, onUnpin, onDelete, onForward, onCopy, onEdit, t,
+    onReply, onPin, onUnpin, onDelete, onForward, onCopy, onEdit, onAuthorClick, t,
     canModerate, channelMode, comments, commentsAllowed, canModerateComments,
     onAddComment, onDeleteComment,
   } = props;
@@ -78,20 +79,42 @@ export function MessageItem(props: {
         {/* Avatar column */}
         <div className="w-8 shrink-0 flex justify-center pt-1">
           {showHeader ? (
-            <div
-              className={`rounded-full flex items-center justify-center font-bold text-white size-8 avatar-pop ${mine ? 'brand-mark' : ''}`}
-              style={mine ? { fontSize: 12 } : { background: msg.anon ? '#7c5cd6' : avColor(msg.authorId), fontSize: 12 }}
-            >
-              {msg.anon ? <EyeOff className="size-3.5" /> : initials(msg.authorName)}
-            </div>
+            onAuthorClick && !msg.anon && !mine ? (
+              <button
+                type="button"
+                onClick={() => onAuthorClick(msg.authorId)}
+                className="rounded-full flex items-center justify-center font-bold text-white size-8 avatar-pop hover:opacity-80 transition-opacity"
+                style={{ background: avColor(msg.authorId), fontSize: 12 }}
+                aria-label={msg.authorName}
+              >
+                {initials(msg.authorName)}
+              </button>
+            ) : (
+              <div
+                className={`rounded-full flex items-center justify-center font-bold text-white size-8 avatar-pop ${mine ? 'brand-mark' : ''}`}
+                style={mine ? { fontSize: 12 } : { background: msg.anon ? '#7c5cd6' : avColor(msg.authorId), fontSize: 12 }}
+              >
+                {msg.anon ? <EyeOff className="size-3.5" /> : initials(msg.authorName)}
+              </div>
+            )
           ) : null}
         </div>
         <div className={`max-w-[78%] sm:max-w-[68%] ${mine ? 'items-end' : 'items-start'} flex flex-col min-w-0`}>
           {showHeader && (
             <div className={`flex items-center gap-2 text-xs mb-1 px-1 max-w-full ${mine ? 'flex-row-reverse' : ''}`}>
-              <span className={msg.anon ? 'text-violet-400 font-semibold' : 'font-semibold text-foreground'}>
-                {msg.anon ? t('msg.anonymous') : msg.authorName}
-              </span>
+              {onAuthorClick && !msg.anon && !mine ? (
+                <button
+                  type="button"
+                  onClick={() => onAuthorClick(msg.authorId)}
+                  className="font-semibold text-foreground hover:underline truncate"
+                >
+                  {msg.authorName}
+                </button>
+              ) : (
+                <span className={msg.anon ? 'text-violet-400 font-semibold' : 'font-semibold text-foreground'}>
+                  {msg.anon ? t('msg.anonymous') : msg.authorName}
+                </span>
+              )}
               {!msg.anon && msg.role === 'admin' && (
                 <Badge variant="secondary" className="text-[9px] px-1 py-0 h-3.5 tracking-wide shrink-0">ADMIN</Badge>
               )}

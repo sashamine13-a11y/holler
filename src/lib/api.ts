@@ -12,6 +12,7 @@ export interface DbProfile {
   name: string;
   role: 'member' | 'admin' | 'dev';
   avatar: string | null;
+  username: string;
   secret_question: string | null;
   created_at: string;
 }
