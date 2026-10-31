@@ -65,12 +65,12 @@ export interface DbRoomMember {
 
 /**
  * Load rooms visible to the user:
- *  - channels the user has joined (room_members row) or created
+ *  - channels the user has joined (room_members) or created (opt-in)
  *  - DMs where the user is dm_user1 or dm_user2
  *  - groups where the user has a room_members row
  *
- * Channels are opt-in: a brand-new user sees zero rooms until they create
- * or join one (see browseChannels / joinChannel).
+ * By default a brand-new user sees ZERO rooms — they add them on demand
+ * via createRoom / joinChannel (surfaced in the sidebar "Add a room" panel).
  */
 export async function loadRooms(myUserId: string): Promise<{ rooms: DbRoom[]; memberships: DbRoomMember[] }> {
   const [roomsRes, membershipsRes] = await Promise.all([
@@ -89,7 +89,7 @@ export async function loadRooms(myUserId: string): Promise<{ rooms: DbRoom[]; me
   const visible = all.filter(r => {
     if (r.room_type === 'dm') return r.dm_user1 === myUserId || r.dm_user2 === myUserId;
     if (r.room_type === 'group') return myRoomIds.has(r.id);
-    // channel: opt-in — only if joined or created
+    // channel: opt-in — only if the user joined or created it
     return myRoomIds.has(r.id) || r.created_by === myUserId;
   });
 
@@ -98,7 +98,6 @@ export async function loadRooms(myUserId: string): Promise<{ rooms: DbRoom[]; me
 
 /**
  * Browse channels the user has NOT joined yet (for the "Join channel" UI).
- * Returns channels excluding ones the user already joined or created.
  */
 export async function browseChannels(myUserId: string): Promise<DbRoom[]> {
   const [roomsRes, membershipsRes] = await Promise.all([
@@ -118,21 +117,6 @@ export async function joinChannel(roomId: string, userId: string): Promise<boole
     .insert({ room_id: roomId, user_id: userId, role: 'member' });
   if (error) {
     console.warn('[api] joinChannel error:', error.message);
-    return false;
-  }
-  return true;
-}
-
-/** Leave a channel/group by removing your membership. Creators can't leave their own channel. */
-export async function leaveRoom(roomId: string, userId: string, isCreator: boolean): Promise<boolean> {
-  if (isCreator) return false;
-  const { error } = await supabase
-    .from('room_members')
-    .delete()
-    .eq('room_id', roomId)
-    .eq('user_id', userId);
-  if (error) {
-    console.warn('[api] leaveRoom error:', error.message);
     return false;
   }
   return true;

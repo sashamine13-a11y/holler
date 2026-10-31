@@ -21,7 +21,7 @@ import { Sidebar } from '@/components/sidebar';
 import { MessageItem, PollCard, AnonCard } from '@/components/chat-panels';
 import { Avatar } from '@/components/avatar';
 import {
-  AddRoomModal, AnonModal, CreateGroupModal, ForwardModal, NewDmModal, PollModal, UserProfileModal,
+  AddRoomModal, AnonModal, BrowseChannelsModal, CreateGroupModal, ForwardModal, NewDmModal, PollModal, UserProfileModal,
 } from '@/components/modals';
 import { RoomSettingsModal } from '@/components/room-settings';
 import { SettingsModal } from '@/components/settings-modal';
@@ -30,7 +30,7 @@ import { useLocalSettings, formatTimePref, WALLPAPER_PRESETS } from '@/lib/local
 import {
   type DbRoom, type DbMessage, type DbProfile, type DbRoomMember, type ChannelComment,
   loadRooms, loadMessages, loadProfiles, loadRoom,
-  browseChannels, joinChannel as apiJoinChannel, leaveRoom as apiLeaveRoom,
+  browseChannels, joinChannel as apiJoinChannel,
   insertMessage, softDeleteMessage as apiDeleteMessage, editMessage as apiEditMessage,
   findOrCreateDm, createGroup as apiCreateGroup,
   updateRoom as apiUpdateRoom, addRoomMembers as apiAddMembers, removeRoomMember as apiRemoveMember,
@@ -54,7 +54,7 @@ import {
 // Types
 // ============================================================================
 
-type ModalMode = 'addChannel' | 'poll' | 'anon' | 'createGroup' | 'forward' | 'newDm' | 'roomSettings' | 'settings' | null;
+type ModalMode = 'addChannel' | 'browseChannels' | 'poll' | 'anon' | 'createGroup' | 'forward' | 'newDm' | 'roomSettings' | 'settings' | null;
 
 // ============================================================================
 // Prefs — only UI state (rooms/messages live in Supabase)
@@ -694,7 +694,7 @@ export default function ClientApp() {
         return;
       }
       // Add the creator as a member so the channel shows up in their sidebar
-      // (channels are opt-in now — membership drives visibility).
+      // (channels are opt-in — membership drives visibility).
       await supabase.from('room_members').insert({
         room_id: data.id,
         user_id: user.id,
@@ -706,6 +706,23 @@ export default function ClientApp() {
       toast.success(kind === 'channel' ? t('room.channelCreated') : t('room.chatCreated'));
     } catch {
       toast.error('Failed to create room');
+    }
+  };
+
+  const joinExistingChannel = async (roomId: string) => {
+    if (!user) return;
+    const ok = await apiJoinChannel(roomId, user.id);
+    if (!ok) {
+      toast.error('Failed to join channel');
+      return;
+    }
+    const dbRoom = await loadRoom(roomId);
+    if (dbRoom) {
+      const appRoom = dbRoomToApp(dbRoom, user.id, profiles);
+      setRooms(prev => prev.some(r => r.id === roomId) ? prev : [...prev, appRoom]);
+      setActive(roomId);
+      setSidebarOpen(false);
+      toast.success(t('room.channelJoined'));
     }
   };
 
@@ -1223,6 +1240,8 @@ export default function ClientApp() {
           onAddChannel={() => setModalMode('addChannel')}
           onAddGroup={() => setModalMode('createGroup')}
           onNewDm={() => setModalMode('newDm')}
+          onBrowseChannels={() => setModalMode('browseChannels')}
+          joinableChannelCount={joinableChannels.length}
           user={user}
           onLogout={handleLogout}
           onSettings={() => setModalMode('settings')}
@@ -1645,6 +1664,14 @@ export default function ClientApp() {
       {/* ------------------- Modals ------------------- */}
       {modalMode === 'addChannel' && (
         <AddRoomModal onClose={() => setModalMode(null)} onCreate={createRoom} t={t} />
+      )}
+      {modalMode === 'browseChannels' && (
+        <BrowseChannelsModal
+          onClose={() => setModalMode(null)}
+          channels={joinableChannels}
+          onJoin={joinExistingChannel}
+          t={t}
+        />
       )}
       {modalMode === 'createGroup' && (
         <CreateGroupModal

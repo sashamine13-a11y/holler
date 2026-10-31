@@ -33,6 +33,8 @@ export function Sidebar(props: {
   onAddChannel: () => void;
   onAddGroup: () => void;
   onNewDm: () => void;
+  onBrowseChannels: () => void;
+  joinableChannelCount: number;
   user: User;
   onLogout: () => void;
   onSettings: () => void;
@@ -47,8 +49,8 @@ export function Sidebar(props: {
 }) {
   const {
     rooms, active, searchQuery, onSearchChange, onSelect, onAddChannel, onAddGroup,
-    onNewDm, user, onLogout, onSettings, onlineMembers, isConnected,
-    onMemberClick, profiles, previews, seen, mobileOpen, onClose,
+    onNewDm, onBrowseChannels, joinableChannelCount, user, onLogout, onSettings,
+    onlineMembers, isConnected, onMemberClick, profiles, previews, seen, mobileOpen, onClose,
   } = props;
   const { t, dateLocale } = useI18n();
   const { roomPrefs } = useLocalSettings();
@@ -209,57 +211,140 @@ export function Sidebar(props: {
         {/* List */}
         <div className="flex-1 overflow-y-auto scroll-thin px-2 pb-2">
           {filter === 'all' ? (
-            sections.map(s => {
-              const isCollapsed = collapsed.has(s.id);
-              const withUnread = s.list.filter(isUnread).length;
+            (() => {
+              // Only show sections that have rooms (DMs always shown as the entry point).
+              // Empty GROUPS / CHANNELS sections are hidden by default — the user adds
+              // rooms on demand via the action buttons below.
+              const visibleSections = sections.filter(s => s.list.length > 0 || s.id === 'dms');
+              const hasAnyRooms = channels.length > 0 || groups.length > 0 || dms.length > 0;
               return (
-                <div key={s.id} className="mb-1">
-                  <button
-                    type="button"
-                    onClick={() => toggleSection(s.id)}
-                    className="w-full flex items-center justify-between px-2 pt-2 pb-1.5 rounded-lg hover:bg-muted/40 transition-colors group"
-                  >
-                    <span className="text-[11px] uppercase tracking-wider text-muted-foreground flex items-center gap-1.5 font-medium min-w-0">
-                      {isCollapsed
-                        ? <ChevronDown className="size-3 -rotate-90 transition-transform" />
-                        : <ChevronDown className="size-3 transition-transform" />}
-                      {s.icon}
-                      <span className="truncate">{s.label}</span>
-                      {withUnread > 0 && (
-                        <span className="brand-mark text-[9px] px-1.5 h-3.5 min-w-[14px] rounded-full text-white font-bold flex items-center justify-center">
-                          {withUnread}
-                        </span>
-                      )}
-                    </span>
-                    <span className="flex items-center gap-0.5">
-                      {s.list.length > 0 && (
-                        <span className="text-[10px] text-muted-foreground/70 tabular-nums">{s.list.length}</span>
-                      )}
-                      {s.add && (
-                        <span
-                          role="button"
-                          tabIndex={0}
-                          aria-label={s.addLabel}
-                          className="size-5 rounded-md flex items-center justify-center text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors"
-                          onClick={(e) => { e.stopPropagation(); s.add?.(); }}
-                          onKeyDown={(e) => { if (e.key === 'Enter') { e.stopPropagation(); s.add?.(); } }}
+                <>
+                  {visibleSections.map(s => {
+                    const isCollapsed = collapsed.has(s.id);
+                    const withUnread = s.list.filter(isUnread).length;
+                    return (
+                      <div key={s.id} className="mb-1">
+                        <button
+                          type="button"
+                          onClick={() => toggleSection(s.id)}
+                          className="w-full flex items-center justify-between px-2 pt-2 pb-1.5 rounded-lg hover:bg-muted/40 transition-colors group"
                         >
-                          <Plus className="size-3.5" />
-                        </span>
-                      )}
-                    </span>
-                  </button>
-                  {!isCollapsed && (
-                    <div className="flex flex-col gap-0.5">
-                      {s.list.length === 0 && (
-                        <div className="text-xs text-muted-foreground px-3 py-1.5">{s.id === 'dms' ? t('room.startDM') : emptyByFilter[s.id as RoomFilter] || ''}</div>
-                      )}
-                      {s.list.map(renderRoom)}
+                          <span className="text-[11px] uppercase tracking-wider text-muted-foreground flex items-center gap-1.5 font-medium min-w-0">
+                            {isCollapsed
+                              ? <ChevronDown className="size-3 -rotate-90 transition-transform" />
+                              : <ChevronDown className="size-3 transition-transform" />}
+                            {s.icon}
+                            <span className="truncate">{s.label}</span>
+                            {withUnread > 0 && (
+                              <span className="brand-mark text-[9px] px-1.5 h-3.5 min-w-[14px] rounded-full text-white font-bold flex items-center justify-center">
+                                {withUnread}
+                              </span>
+                            )}
+                          </span>
+                          <span className="flex items-center gap-0.5">
+                            {s.list.length > 0 && (
+                              <span className="text-[10px] text-muted-foreground/70 tabular-nums">{s.list.length}</span>
+                            )}
+                            {s.add && (
+                              <span
+                                role="button"
+                                tabIndex={0}
+                                aria-label={s.addLabel}
+                                className="size-5 rounded-md flex items-center justify-center text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors"
+                                onClick={(e) => { e.stopPropagation(); s.add?.(); }}
+                                onKeyDown={(e) => { if (e.key === 'Enter') { e.stopPropagation(); s.add?.(); } }}
+                              >
+                                <Plus className="size-3.5" />
+                              </span>
+                            )}
+                          </span>
+                        </button>
+                        {!isCollapsed && (
+                          <div className="flex flex-col gap-0.5">
+                            {s.list.length === 0 && s.id === 'dms' && (
+                              <div className="text-xs text-muted-foreground px-3 py-1.5">{t('room.startDM')}</div>
+                            )}
+                            {s.list.map(renderRoom)}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+
+                  {/* When the user has no groups and no channels yet, surface
+                      add-room actions so they can opt into rooms on demand. */}
+                  {!hasAnyRooms && (
+                    <div className="mt-3 mb-1 rounded-xl border border-dashed border-border bg-muted/20 p-2.5">
+                      <div className="text-[11px] uppercase tracking-wider text-muted-foreground font-medium px-1 pb-2">
+                        {t('nav.addRoom')}
+                      </div>
+                      <div className="flex flex-col gap-1">
+                        <button
+                          type="button"
+                          onClick={onAddChannel}
+                          className="w-full flex items-center gap-2.5 px-2 py-2 rounded-lg hover:bg-muted/50 transition-colors text-left"
+                        >
+                          <span className="size-7 rounded-lg bg-primary/10 text-primary flex items-center justify-center shrink-0">
+                            <Megaphone className="size-3.5" />
+                          </span>
+                          <span className="flex-1 min-w-0">
+                            <span className="block text-[13px] font-medium truncate">{t('nav.createChannel')}</span>
+                            <span className="block text-[11px] text-muted-foreground truncate">{t('nav.createChannelHint')}</span>
+                          </span>
+                          <Plus className="size-3.5 text-muted-foreground shrink-0" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={onAddGroup}
+                          className="w-full flex items-center gap-2.5 px-2 py-2 rounded-lg hover:bg-muted/50 transition-colors text-left"
+                        >
+                          <span className="size-7 rounded-lg bg-primary/10 text-primary flex items-center justify-center shrink-0">
+                            <Users className="size-3.5" />
+                          </span>
+                          <span className="flex-1 min-w-0">
+                            <span className="block text-[13px] font-medium truncate">{t('nav.createGroup')}</span>
+                            <span className="block text-[11px] text-muted-foreground truncate">{t('nav.createGroupHint')}</span>
+                          </span>
+                          <Plus className="size-3.5 text-muted-foreground shrink-0" />
+                        </button>
+                        {joinableChannelCount > 0 && (
+                          <button
+                            type="button"
+                            onClick={onBrowseChannels}
+                            className="w-full flex items-center gap-2.5 px-2 py-2 rounded-lg hover:bg-muted/50 transition-colors text-left"
+                          >
+                            <span className="size-7 rounded-lg bg-primary/10 text-primary flex items-center justify-center shrink-0">
+                              <Search className="size-3.5" />
+                            </span>
+                            <span className="flex-1 min-w-0">
+                              <span className="block text-[13px] font-medium truncate">{t('nav.browseChannels')}</span>
+                              <span className="block text-[11px] text-muted-foreground truncate">{t('nav.browseChannelsHint')}</span>
+                            </span>
+                            <span className="text-[10px] text-muted-foreground tabular-nums shrink-0">{joinableChannelCount}</span>
+                          </button>
+                        )}
+                      </div>
                     </div>
                   )}
-                </div>
+
+                  {/* Even when the user has rooms, keep "Browse channels" discoverable
+                      so they can join more channels on demand. */}
+                  {hasAnyRooms && joinableChannelCount > 0 && (
+                    <div className="mb-1 px-1 pt-2">
+                      <button
+                        type="button"
+                        onClick={onBrowseChannels}
+                        className="w-full flex items-center gap-2 px-2 py-2 rounded-lg hover:bg-muted/50 transition-colors text-left text-muted-foreground"
+                      >
+                        <Search className="size-3.5 shrink-0" />
+                        <span className="text-[12px] font-medium truncate flex-1">{t('nav.browseChannels')}</span>
+                        <span className="text-[10px] tabular-nums shrink-0">{joinableChannelCount}</span>
+                      </button>
+                    </div>
+                  )}
+                </>
               );
-            })
+            })()
           ) : (
             <div className="flex flex-col gap-0.5 pt-1">
               {counts[filter] === 0 && (
