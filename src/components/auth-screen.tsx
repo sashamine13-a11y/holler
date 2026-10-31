@@ -56,7 +56,7 @@ export function AuthScreen({ onSuccess }: AuthScreenProps) {
         setError('Please enter your name');
         return;
       }
-      if (!unameValid) {
+      if (!unameClean || !unameValid) {
         setError(t('profile.usernameInvalid'));
         return;
       }
@@ -75,7 +75,7 @@ export function AuthScreen({ onSuccess }: AuthScreenProps) {
     if (mode === 'signin') {
       result = await signIn(email.trim(), password);
     } else {
-      result = await signUp(email.trim(), password, name.trim(), secretQuestion.trim(), secretAnswer.trim(), unameClean || undefined);
+      result = await signUp(email.trim(), password, name.trim(), secretQuestion.trim(), secretAnswer.trim(), unameClean);
     }
 
     if (result.error) {
@@ -344,13 +344,12 @@ export function AuthScreen({ onSuccess }: AuthScreenProps) {
                   <Label htmlFor="signup-username" className="flex items-center gap-1.5">
                     <AtSign className="size-3.5 text-muted-foreground" />
                     {t('profile.username')}
-                    <span className="text-muted-foreground font-normal text-[11px]">· {t('common.optional')}</span>
                   </Label>
                   <div className="relative">
                     <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">@</span>
                     <Input
                       id="signup-username"
-                      placeholder={t('profile.usernameDefault')}
+                      placeholder={t('profile.usernamePlaceholder')}
                       value={username}
                       onChange={(e) => setUsername(e.target.value.replace(/\s/g, '').toLowerCase())}
                       onKeyDown={(e) => e.key === 'Enter' && submit()}
@@ -359,6 +358,7 @@ export function AuthScreen({ onSuccess }: AuthScreenProps) {
                       spellCheck={false}
                       autoComplete="off"
                       aria-invalid={!unameValid}
+                      required
                     />
                   </div>
                   <p className={`text-[11px] mt-1 ${!unameValid ? 'text-destructive' : 'text-muted-foreground'}`}>

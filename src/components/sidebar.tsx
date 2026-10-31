@@ -453,7 +453,7 @@ function RoomItem(props: {
             {preview ? (
               <span className={unread ? 'text-foreground font-medium' : ''}>{prefix}{previewText}</span>
             ) : room.roomType !== 'dm' ? (
-              <span className="text-muted-foreground">@{roomHandle(room.name)}{room.about ? ` · ${room.about}` : ''}</span>
+              <span className="text-muted-foreground">@{room.username || roomHandle(room.name)}{room.about ? ` · ${room.about}` : ''}</span>
             ) : (
               ''
             )}

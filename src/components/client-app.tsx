@@ -132,6 +132,7 @@ function dbRoomToApp(r: DbRoom, myId: string, profiles: DbProfile[]): Room {
     room.name = other?.name ?? r.name;
   }
   room.commentsEnabled = r.comments_enabled;
+  room.username = r.username ?? undefined;
   return room;
 }
 
@@ -687,15 +688,30 @@ export default function ClientApp() {
     }
   };
 
-  const createRoom = async (name: string, about: string, category: string, kind: RoomKind) => {
+  const createRoom = async (name: string, about: string, category: string, kind: RoomKind, username: string) => {
     if (!user) return;
     const cleanName = sanitizeText(name, 32);
+    const cleanUsername = sanitizeText(username, 20).toLowerCase();
     if (!cleanName) {
       toast.error(t('newRoom.enterName'));
       return;
     }
+    if (!/^[a-z0-9_]{3,20}$/.test(cleanUsername)) {
+      toast.error(t('profile.usernameInvalid'));
+      return;
+    }
     try {
       const { supabase } = await import('@/lib/supabase');
+      // uniqueness check
+      const { count } = await supabase
+        .from('rooms')
+        .select('id', { count: 'exact', head: true })
+        .in('room_type', ['channel', 'group'])
+        .ilike('username', cleanUsername);
+      if (count && count > 0) {
+        toast.error(t('profile.usernameTaken'));
+        return;
+      }
       const { data, error } = await supabase
         .from('rooms')
         .insert({
@@ -705,6 +721,7 @@ export default function ClientApp() {
           category,
           about: sanitizeText(about, MAX_ABOUT_LEN) || null,
           created_by: user.id,
+          username: cleanUsername,
         })
         .select()
         .single();
@@ -751,17 +768,32 @@ export default function ClientApp() {
 
   const handleToggleReaction = async (messageId: string, emoji: string) => {
     if (!user || !activeRoom) return;
-    // optimistic: toggle locally
     const roomId = activeRoom.id;
+    // optimistic: one reaction per user per message
     setReactions(prev => {
       const list = prev[messageId] ?? [];
-      const exists = list.some(r => r.user_id === user.id && r.emoji === emoji);
-      const next = exists
-        ? list.filter(r => !(r.user_id === user.id && r.emoji === emoji))
-        : [...list, { id: 'tmp', message_id: messageId, room_id: roomId, user_id: user.id, emoji, created_at: new Date().toISOString() }];
+      const myExisting = list.filter(r => r.user_id === user.id);
+      const sameEmoji = myExisting.find(r => r.emoji === emoji);
+      let next: { id: string; message_id: string; room_id: string; user_id: string; emoji: string; created_at: string }[];
+      if (sameEmoji) {
+        // toggle off
+        next = list.filter(r => r.id !== sameEmoji.id);
+      } else {
+        // replace any existing with the new one
+        next = [
+          ...list.filter(r => r.user_id !== user.id),
+          { id: 'tmp', message_id: messageId, room_id: roomId, user_id: user.id, emoji, created_at: new Date().toISOString() },
+        ];
+      }
       return { ...prev, [messageId]: next };
     });
     await apiToggleReaction(messageId, roomId, user.id, emoji);
+    // re-sync from server to correct any divergence
+    loadReactions(roomId).then(list => {
+      const byMsg: Record<string, DbReaction[]> = {};
+      for (const r of list) (byMsg[r.message_id] ??= []).push(r);
+      setReactions(byMsg);
+    });
   };
 
   const startDm = async (otherUserId: string) => {
@@ -1753,7 +1785,7 @@ export default function ClientApp() {
           memberSince={profiles.find(p => p.id === user.id)?.created_at}
           onUpdateProfile={(name, username, avatar, about) => updateProfile(name, username, user.role, avatar, about)}
           onLogout={handleLogout}
-          devInfo={{
+          devInfo={isDev ? {
             userId: user.id,
             email: user.email ?? '',
             role: user.role,
@@ -1786,7 +1818,7 @@ export default function ClientApp() {
               commentCounts: Object.fromEntries(Object.entries(channelComments).map(([k, v]) => [k, v.length])),
               previews,
             }, null, 2),
-          }}
+          } : undefined}
         />
       )}
       {modalMode === 'roomSettings' && activeRoom && (

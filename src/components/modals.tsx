@@ -50,11 +50,12 @@ export function ModalShell(props: {
 
 export function AddRoomModal(props: {
   onClose: () => void;
-  onCreate: (name: string, about: string, category: string, kind: RoomKind) => void;
+  onCreate: (name: string, about: string, category: string, kind: RoomKind, username: string) => void;
   t: (key: string) => string;
 }) {
   const { t } = props;
   const [name, setName] = useState('');
+  const [username, setUsername] = useState('');
   const [about, setAbout] = useState('');
   const [category, setCategory] = useState<string>('general');
 
@@ -63,13 +64,17 @@ export function AddRoomModal(props: {
     { id: 'shop' }, { id: 'sport' }, { id: 'creative' }, { id: 'other' },
   ] as const;
 
+  const unameClean = username.trim().toLowerCase();
+  const unameValid = /^[a-z0-9_]{3,20}$/.test(unameClean);
+  const canCreate = name.trim().length > 0 && unameValid;
+
   return (
     <ModalShell
       title={t('newRoom.title')}
       description={t('newRoom.channelDesc')}
       onClose={props.onClose}
       footer={
-        <Button onClick={() => { props.onCreate(name, about, category, 'channel'); props.onClose(); }}>
+        <Button onClick={() => { if (canCreate) { props.onCreate(name, about, category, 'channel', unameClean); props.onClose(); } }} disabled={!canCreate}>
           {t('newRoom.create')}
         </Button>
       }
@@ -78,6 +83,29 @@ export function AddRoomModal(props: {
         <div>
           <Label htmlFor="cn">{t('newRoom.name')}</Label>
           <Input id="cn" placeholder={t('newRoom.namePlaceholder')} maxLength={32} value={name} onChange={(e) => setName(e.target.value)} />
+        </div>
+        <div>
+          <Label htmlFor="cn-uname" className="flex items-center gap-1.5">
+            <AtSign className="size-3.5 text-muted-foreground" />
+            {t('profile.username')}
+          </Label>
+          <div className="relative">
+            <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">@</span>
+            <Input
+              id="cn-uname"
+              className="pl-7"
+              maxLength={20}
+              value={username}
+              placeholder={t('newRoom.usernamePlaceholder')}
+              onChange={(e) => setUsername(e.target.value.replace(/\s/g, '').toLowerCase())}
+              spellCheck={false}
+              autoComplete="off"
+              aria-invalid={!unameValid}
+            />
+          </div>
+          <p className={`text-xs mt-1 ${!unameValid ? 'text-destructive' : 'text-muted-foreground'}`}>
+            {!unameValid ? t('profile.usernameInvalid') : t('profile.usernameHint')}
+          </p>
         </div>
         <div>
           <Label htmlFor="cd">{t('newRoom.description')}</Label>
@@ -610,7 +638,7 @@ export function BrowseChannelsModal(props: {
             </div>
           )}
           {filtered.map(r => {
-            const handle = '@' + r.name.toLowerCase().replace(/[^a-z0-9_]/g, '').replace(/_+/g, '_').replace(/^_+|_+$/g, '') || 'channel';
+            const handle = r.username || 'channel';
             return (
               <button
                 key={r.id}
@@ -618,12 +646,12 @@ export function BrowseChannelsModal(props: {
                 onClick={() => { onSubscribe(r.id); onClose(); }}
                 className="w-full flex items-center gap-3 px-3 py-2.5 hover:bg-muted/40 transition-colors text-left"
               >
-                <div className="room-avatar size-9 shrink-0" style={{ background: roomColor({ id: r.id, name: r.name, kind: r.kind, roomType: 'channel', messages: [], category: r.category ?? 'general' } as Room) }}>
+                <div className="room-avatar size-9 shrink-0" style={{ background: roomColor({ id: r.id, name: r.name, kind: r.kind, roomType: 'channel', messages: [], category: r.category ?? 'general', username: r.username ?? undefined } as Room) }}>
                   <Megaphone className="size-4" />
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className="text-sm font-medium truncate word-safe">{r.name}</div>
-                  <div className="text-xs text-muted-foreground truncate">{handle}</div>
+                  <div className="text-xs text-muted-foreground truncate">@{handle}</div>
                 </div>
                 <Plus className="size-4 text-primary shrink-0" />
               </button>

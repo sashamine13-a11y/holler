@@ -125,20 +125,16 @@ export function useAuth() {
       return { error: 'Invalid email format' };
     }
 
-    // username is optional; validate format if provided
-    const cleanUsername = username ? username.trim().toLowerCase() : '';
-    if (cleanUsername && !/^[a-z0-9_]{3,20}$/.test(cleanUsername)) {
+    // username is required
+    const cleanUsername = (username ?? '').trim().toLowerCase();
+    if (!cleanUsername || !/^[a-z0-9_]{3,20}$/.test(cleanUsername)) {
       return { error: 'Username: 3–20 chars, lowercase letters, numbers, underscore only' };
     }
 
     const result = await withTimeout(supabase.auth.signUp({
       email: cleanEmail,
       password,
-      options: {
-        data: cleanUsername
-          ? { name: cleanName, username: cleanUsername }
-          : { name: cleanName },
-      },
+      options: { data: { name: cleanName, username: cleanUsername } },
     }), 15000);
 
     if (result.error) return { error: translateError(result.error.message) };

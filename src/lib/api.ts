@@ -30,6 +30,7 @@ export interface DbRoom {
   created_by: string | null;
   created_at: string;
   comments_enabled: boolean;
+  username: string | null;
 }
 
 export interface DbMessage {
@@ -152,22 +153,48 @@ export async function loadReactions(roomId: string): Promise<DbReaction[]> {
   return (data ?? []) as DbReaction[];
 }
 
-/** Toggle a reaction (add if absent, remove if present). Returns the new list for that message. */
+/**
+ * Toggle a reaction. A user can have at most ONE reaction per message:
+ *  - if the user already has this exact emoji → remove it (toggle off)
+ *  - if the user has a different emoji → replace it with the new one
+ *  - if the user has no reaction → add it
+ */
 export async function toggleReaction(messageId: string, roomId: string, userId: string, emoji: string): Promise<void> {
-  // try delete first (toggle off)
-  const { error: delErr } = await supabase
+  // Load the user's existing reaction on this message (if any)
+  const { data: existing, error: selErr } = await supabase
     .from('message_reactions')
-    .delete()
+    .select('id, emoji')
     .eq('message_id', messageId)
-    .eq('user_id', userId)
-    .eq('emoji', emoji);
-  if (delErr) { console.warn('[api] reaction delete error:', delErr.message); return; }
-  // if nothing deleted, insert (toggle on)
-  // (we can't know rowcount from supabase without select, so just try insert; unique constraint catches dupes)
+    .eq('user_id', userId);
+  if (selErr) { console.warn('[api] reaction select error:', selErr.message); return; }
+
+  const mine = (existing ?? []) as { id: string; emoji: string }[];
+  const sameEmoji = mine.find(r => r.emoji === emoji);
+
+  if (sameEmoji) {
+    // toggle off — user clicked their own reaction
+    const { error: delErr } = await supabase
+      .from('message_reactions')
+      .delete()
+      .eq('id', sameEmoji.id);
+    if (delErr) console.warn('[api] reaction delete error:', delErr.message);
+    return;
+  }
+
+  // user has a different reaction (or none) — remove all their existing ones on this message first
+  if (mine.length > 0) {
+    const { error: delErr } = await supabase
+      .from('message_reactions')
+      .delete()
+      .in('id', mine.map(r => r.id));
+    if (delErr) console.warn('[api] reaction replace-delete error:', delErr.message);
+  }
+
+  // insert the new one (unique constraint catches any race)
   const { error: insErr } = await supabase
     .from('message_reactions')
     .insert({ message_id: messageId, room_id: roomId, user_id: userId, emoji });
-  if (insErr && insErr.code !== '23505') { // 23505 = unique violation (already exists) — ignore
+  if (insErr && insErr.code !== '23505') {
     console.warn('[api] reaction insert error:', insErr.message);
   }
 }

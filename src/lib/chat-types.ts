@@ -68,6 +68,7 @@ export interface Room {
   createdBy?: string;
   createdAt?: number;
   commentsEnabled?: boolean;
+  username?: string;
 }
 
 // ============================================================================

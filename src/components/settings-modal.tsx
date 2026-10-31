@@ -270,7 +270,6 @@ export function SettingsModal(props: {
             <Label htmlFor="st-username" className="flex items-center gap-1.5">
               <AtSign className="size-3.5 text-muted-foreground" />
               {t('profile.username')}
-              <span className="text-muted-foreground font-normal text-[11px]">· {t('common.optional')}</span>
             </Label>
             <div className="relative">
               <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">@</span>
