@@ -297,10 +297,13 @@ export default function ClientApp() {
   }, [user, refreshRooms]);
 
   // ===========================================================================
-  // Load messages for the active room + realtime inserts/updates
+  // Load messages for the active room + realtime inserts/updates.
+  // Wait until the room list is loaded (loadingRooms=false) — otherwise
+  // setRooms maps over an empty array and messages are lost until the user
+  // switches rooms back and forth.
   // ===========================================================================
   useEffect(() => {
-    if (!active || !user) return;
+    if (!active || !user || loadingRooms) return;
     let cancelled = false;
     (async () => {
       const dbMsgs = await loadMessages(active);
@@ -351,7 +354,7 @@ export default function ClientApp() {
       setPinned(pin ? { room: active, messageId: pin.messageId ?? undefined, text: pin.text, ts: pin.ts } : null);
     });
     return () => { cancelled = true; unsub(); unsubPin(); };
-  }, [active, user, roomPrefs, playSound, settings.desktopNotifications]);
+  }, [active, user, loadingRooms, roomPrefs, playSound, settings.desktopNotifications]);
 
   // Ably poll events
   useEffect(() => {
