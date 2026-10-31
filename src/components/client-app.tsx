@@ -1450,25 +1450,39 @@ export default function ClientApp() {
                     </TooltipTrigger>
                     <TooltipContent>{t('msg.attach')}</TooltipContent>
                   </Tooltip>
-                  <Textarea
-                    value={inputValue}
-                    onChange={(e) => handleInputChange(e.target.value)}
-                    onKeyDown={(e) => {
-                      // sendOnEnter=true (default): Enter sends, Shift+Enter newline.
-                      // sendOnEnter=false: Ctrl/Cmd+Enter sends, Enter = newline.
-                      const wantSend = settings.sendOnEnter
-                        ? (e.key === 'Enter' && !e.shiftKey)
-                        : (e.key === 'Enter' && (e.ctrlKey || e.metaKey));
-                      if (wantSend) {
-                        e.preventDefault();
-                        sendMessage();
-                      }
-                    }}
-                    placeholder={t('msg.typePlaceholder')}
-                    rows={1}
-                    className="resize-none min-h-[42px] max-h-32 flex-1 rounded-2xl bg-muted/40 border-border/60"
-                    maxLength={MAX_MSG_LEN}
-                  />
+                  {/* Placeholder overlay: a native textarea placeholder soft-wraps and
+                      gets clipped mid-line on narrow screens / long locales (ru/es/de).
+                      The overlay keeps it to one line with an ellipsis at any width or
+                      font scale. */}
+                  <div className="relative min-w-0 flex-1">
+                    <Textarea
+                      value={inputValue}
+                      onChange={(e) => handleInputChange(e.target.value)}
+                      onKeyDown={(e) => {
+                        // sendOnEnter=true (default): Enter sends, Shift+Enter newline.
+                        // sendOnEnter=false: Ctrl/Cmd+Enter sends, Enter = newline.
+                        const wantSend = settings.sendOnEnter
+                          ? (e.key === 'Enter' && !e.shiftKey)
+                          : (e.key === 'Enter' && (e.ctrlKey || e.metaKey));
+                        if (wantSend) {
+                          e.preventDefault();
+                          sendMessage();
+                        }
+                      }}
+                      aria-label={t('msg.typePlaceholder')}
+                      rows={1}
+                      className="resize-none min-h-[42px] max-h-32 rounded-2xl bg-muted/40 border-border/60"
+                      maxLength={MAX_MSG_LEN}
+                    />
+                    {inputValue === '' && (
+                      <div
+                        aria-hidden="true"
+                        className="pointer-events-none absolute left-3 right-3 top-2 truncate text-base md:text-sm text-muted-foreground"
+                      >
+                        {t('msg.typePlaceholder')}
+                      </div>
+                    )}
+                  </div>
                   {/* Voice recorder */}
                   <Tooltip>
                     <TooltipTrigger asChild>

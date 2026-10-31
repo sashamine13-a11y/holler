@@ -150,7 +150,7 @@ export function AuthScreen({ onSuccess }: AuthScreenProps) {
   };
 
   return (
-    <div className="min-h-[100dvh] flex items-center justify-center p-4 relative">
+    <div className="min-h-[100dvh] flex items-center justify-center p-4 relative overflow-hidden">
       {/* Aurora glow behind the card */}
       <div className="aurora-blob absolute size-[420px] rounded-full blur-3xl opacity-25 pointer-events-none" style={{ background: 'var(--grad-brand)' }} aria-hidden />
       <Card className="w-full max-w-md p-6 glass relative">
