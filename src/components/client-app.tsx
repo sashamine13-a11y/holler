@@ -30,6 +30,7 @@ import { useLocalSettings, formatTimePref, WALLPAPER_PRESETS } from '@/lib/local
 import {
   type DbRoom, type DbMessage, type DbProfile, type DbRoomMember, type ChannelComment,
   loadRooms, loadMessages, loadProfiles, loadRoom,
+  browseChannels, joinChannel as apiJoinChannel, leaveRoom as apiLeaveRoom,
   insertMessage, softDeleteMessage as apiDeleteMessage, editMessage as apiEditMessage,
   findOrCreateDm, createGroup as apiCreateGroup,
   updateRoom as apiUpdateRoom, addRoomMembers as apiAddMembers, removeRoomMember as apiRemoveMember,
@@ -149,6 +150,7 @@ export default function ClientApp() {
   const [profiles, setProfiles] = useState<DbProfile[]>([]);
   const [roomMemberships, setRoomMemberships] = useState<DbRoomMember[]>([]);
   const [loadingRooms, setLoadingRooms] = useState(true);
+  const [joinableChannels, setJoinableChannels] = useState<DbRoom[]>([]);
 
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [inputValue, setInputValue] = useState('');
@@ -255,11 +257,13 @@ export default function ClientApp() {
   const refreshRooms = useCallback(async () => {
     if (!user) return;
     try {
-      const [{ rooms: dbRooms, memberships }, dbProfiles] = await Promise.all([
+      const [{ rooms: dbRooms, memberships }, dbProfiles, joinable] = await Promise.all([
         loadRooms(user.id),
         loadProfiles(),
+        browseChannels(user.id),
       ]);
       setProfiles(dbProfiles);
+      setJoinableChannels(joinable);
       const appRooms = dbRooms.map(r => dbRoomToApp(r, user.id, dbProfiles));
       setRoomMemberships(memberships);
       // Preserve already-loaded messages — refresh can fire while reading.
@@ -689,6 +693,13 @@ export default function ClientApp() {
         toast.error('Failed to create room');
         return;
       }
+      // Add the creator as a member so the channel shows up in their sidebar
+      // (channels are opt-in now — membership drives visibility).
+      await supabase.from('room_members').insert({
+        room_id: data.id,
+        user_id: user.id,
+        role: 'admin',
+      });
       const newRoom = dbRoomToApp(data as DbRoom, user.id, profiles);
       setRooms(prev => [...prev, newRoom]);
       setActive(data.id);

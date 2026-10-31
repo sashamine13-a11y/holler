@@ -65,9 +65,12 @@ export interface DbRoomMember {
 
 /**
  * Load rooms visible to the user:
- *  - all channels (room_type='channel')
+ *  - channels the user has joined (room_members row) or created
  *  - DMs where the user is dm_user1 or dm_user2
  *  - groups where the user has a room_members row
+ *
+ * Channels are opt-in: a brand-new user sees zero rooms until they create
+ * or join one (see browseChannels / joinChannel).
  */
 export async function loadRooms(myUserId: string): Promise<{ rooms: DbRoom[]; memberships: DbRoomMember[] }> {
   const [roomsRes, membershipsRes] = await Promise.all([
@@ -86,10 +89,53 @@ export async function loadRooms(myUserId: string): Promise<{ rooms: DbRoom[]; me
   const visible = all.filter(r => {
     if (r.room_type === 'dm') return r.dm_user1 === myUserId || r.dm_user2 === myUserId;
     if (r.room_type === 'group') return myRoomIds.has(r.id);
-    return true; // channels visible to everyone
+    // channel: opt-in — only if joined or created
+    return myRoomIds.has(r.id) || r.created_by === myUserId;
   });
 
   return { rooms: visible, memberships };
+}
+
+/**
+ * Browse channels the user has NOT joined yet (for the "Join channel" UI).
+ * Returns channels excluding ones the user already joined or created.
+ */
+export async function browseChannels(myUserId: string): Promise<DbRoom[]> {
+  const [roomsRes, membershipsRes] = await Promise.all([
+    supabase.from('rooms').select('*').eq('room_type', 'channel').order('created_at', { ascending: true }),
+    supabase.from('room_members').select('room_id').eq('user_id', myUserId),
+  ]);
+  if (roomsRes.error) return [];
+  const joined = new Set(((membershipsRes.data ?? []) as { room_id: string }[]).map(m => m.room_id));
+  const all = (roomsRes.data ?? []) as DbRoom[];
+  return all.filter(r => !joined.has(r.id) && r.created_by !== myUserId);
+}
+
+/** Join a channel by adding yourself as a member. */
+export async function joinChannel(roomId: string, userId: string): Promise<boolean> {
+  const { error } = await supabase
+    .from('room_members')
+    .insert({ room_id: roomId, user_id: userId, role: 'member' });
+  if (error) {
+    console.warn('[api] joinChannel error:', error.message);
+    return false;
+  }
+  return true;
+}
+
+/** Leave a channel/group by removing your membership. Creators can't leave their own channel. */
+export async function leaveRoom(roomId: string, userId: string, isCreator: boolean): Promise<boolean> {
+  if (isCreator) return false;
+  const { error } = await supabase
+    .from('room_members')
+    .delete()
+    .eq('room_id', roomId)
+    .eq('user_id', userId);
+  if (error) {
+    console.warn('[api] leaveRoom error:', error.message);
+    return false;
+  }
+  return true;
 }
 
 /** Load messages for a room, oldest first (soft-deleted excluded). */
