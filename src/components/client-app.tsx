@@ -41,7 +41,7 @@ import {
   subscribeToRoomMessages, subscribeToRooms, subscribeToPin, subscribeToRoomComments,
 } from '@/lib/api';
 import {
-  AVATAR_MAX_BYTES, formatDateLabel, roomColor, safeDataUrl, sanitizeText, uid,
+  formatDateLabel, roomColor, safeDataUrl, sanitizeText, uid,
   MAX_ABOUT_LEN, MAX_MSG_LEN,
   type AnonQuestion, type Message, type Pinned, type Poll, type Role, type Room, type RoomKind, type User,
 } from '@/lib/chat-types';
@@ -591,7 +591,7 @@ export default function ClientApp() {
       text: cleanText,
       ts: Date.now(),
       anon,
-      image: safeDataUrl(pendingImage),
+      image: safeDataUrl(pendingImage, 2_100_000),
       mediaType: pendingMediaType,
       replyTo: replyTo?.id,
       replySnippet: replyTo ? (replyTo.text || (replyTo.image ? '[attachment]' : '')).slice(0, 80) : undefined,
@@ -609,7 +609,7 @@ export default function ClientApp() {
       author_name: user.name,
       author_role: user.role,
       text: cleanText || null,
-      image: safeDataUrl(pendingImage) ?? null,
+      image: safeDataUrl(pendingImage, 2_100_000) ?? null,
       media_type: pendingImage ? pendingMediaType : null,
       reply_to: replyTo?.id ?? null,
       forwarded_from: forwardMsg?.authorName ?? null,
@@ -852,7 +852,7 @@ export default function ClientApp() {
       author_name: user.name,
       author_role: user.role,
       text: forwardMsg.text || null,
-      image: forwardMsg.image ? safeDataUrl(forwardMsg.image) ?? null : null,
+      image: forwardMsg.image ? safeDataUrl(forwardMsg.image, 2_100_000) ?? null : null,
       media_type: forwardMsg.image ? (forwardMsg.mediaType ?? 'image') : null,
       forwarded_from: forwardMsg.authorName,
       forwarded_by: user.id,
@@ -1178,61 +1178,56 @@ export default function ClientApp() {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    const isVideo = /^video\/(mp4|webm|quicktime)$/.test(file.type);
     const isImage = /^image\/(jpeg|png|webp)$/.test(file.type);
-    const maxBytes = isVideo ? 8 * 1024 * 1024 : AVATAR_MAX_BYTES;
-
-    if (!isImage && !isVideo) {
+    if (!isImage) {
       toast.error(t('msg.onlyFormats'));
-      return;
-    }
-    if (file.size > maxBytes) {
-      toast.error(isVideo ? 'Video must be under 8MB' : t('msg.fileTooLarge'));
-      return;
-    }
-    const reader = new FileReader();
-
-    if (isVideo) {
-      reader.onload = () => {
-        const dataUrl = reader.result as string;
-        if (dataUrl.length > 1_500_000) {
-          toast.error('Video file too large for inline storage. Try a shorter clip.');
-          return;
-        }
-        setPendingImage(dataUrl);
-        setPendingMediaType('video');
-        toast(t('msg.videoAttached'));
-      };
-      reader.onerror = () => toast.error(t('msg.failedRead'));
-      reader.readAsDataURL(file);
       e.target.value = '';
       return;
     }
 
+    const reader = new FileReader();
     reader.onload = () => {
       const img = new Image();
       img.onload = () => {
-        const canvas = document.createElement('canvas');
-        const maxDim = 800;
-        let { width, height } = img;
-        if (width > height && width > maxDim) {
-          height = Math.round((height * maxDim) / width);
-          width = maxDim;
-        } else if (height > maxDim) {
-          width = Math.round((width * maxDim) / height);
-          height = maxDim;
+        // Compress the image so the resulting data URL fits under 2 MB.
+        // Strategy: start at max dimension 1600 and quality 0.82, then step
+        // down quality (and dimension if needed) until under the budget.
+        const MAX_BYTES = 2 * 1024 * 1024; // 2 MB target for the data URL
+        const dimSteps = [1600, 1280, 1024, 800, 640];
+        const qualitySteps = [0.82, 0.72, 0.62, 0.5];
+
+        let result: string | null = null;
+        for (const maxDim of dimSteps) {
+          let { width, height } = img;
+          if (width > height && width > maxDim) {
+            height = Math.round((height * maxDim) / width);
+            width = maxDim;
+          } else if (height > maxDim) {
+            width = Math.round((width * maxDim) / height);
+            height = maxDim;
+          }
+          const canvas = document.createElement('canvas');
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext('2d');
+          if (!ctx) continue;
+          ctx.drawImage(img, 0, 0, width, height);
+          for (const q of qualitySteps) {
+            const dataUrl = canvas.toDataURL('image/jpeg', q);
+            if (dataUrl.length <= MAX_BYTES) {
+              result = dataUrl;
+              break;
+            }
+          }
+          if (result) break;
         }
-        canvas.width = width;
-        canvas.height = height;
-        const ctx = canvas.getContext('2d');
-        if (!ctx) return;
-        ctx.drawImage(img, 0, 0, width, height);
-        const dataUrl = canvas.toDataURL('image/jpeg', 0.78);
-        if (dataUrl.length > 200_000) {
+
+        if (!result) {
           toast.error(t('msg.imageTooLarge'));
           return;
         }
-        setPendingImage(dataUrl);
+        setPendingImage(result);
+        setPendingMediaType('image');
         toast(t('msg.imageAttached'));
       };
       img.onerror = () => toast.error(t('msg.failedRead'));
@@ -1578,8 +1573,6 @@ export default function ClientApp() {
                 <div className="flex items-center gap-2.5 p-2 rounded-xl bg-muted/40 border border-border">
                   {pendingMediaType === 'audio' ? (
                     <audio src={pendingImage} controls className="h-9 w-64 max-w-full" />
-                  ) : pendingMediaType === 'video' ? (
-                    <video src={pendingImage} className="max-h-28 rounded-lg border border-border" controls preload="metadata" />
                   ) : (
                     // eslint-disable-next-line @next/next/no-img-element
                     <img src={pendingImage} alt="attachment" className="max-h-28 rounded-lg border border-border" />
@@ -1632,7 +1625,7 @@ export default function ClientApp() {
                   <input
                     ref={fileInputRef}
                     type="file"
-                    accept="image/jpeg,image/png,image/webp,video/mp4,video/webm"
+                    accept="image/jpeg,image/png,image/webp"
                     onChange={handleAttach}
                     className="hidden"
                   />
