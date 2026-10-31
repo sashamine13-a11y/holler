@@ -169,6 +169,8 @@ export default function ClientApp() {
   const recTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   // Chat-list previews + typing indicators
   const [previews, setPreviews] = useState<Record<string, RoomPreview>>({});
+  // Cache of loaded messages per room — survives room-list refreshes
+  const messageCacheRef = useRef<Map<string, Message[]>>(new Map());
   const [typing, setTyping] = useState<Record<string, Record<string, { name: string; ts: number }>>>({});
   const [rec, setRec] = useState<{ on: boolean; secs: number }>({ on: false, secs: 0 });
   const [showJump, setShowJump] = useState(false);
@@ -253,10 +255,15 @@ export default function ClientApp() {
       setProfiles(dbProfiles);
       const appRooms = dbRooms.map(r => dbRoomToApp(r, user.id, dbProfiles));
       setRoomMemberships(memberships);
-      // Preserve already-loaded messages — refresh can fire while reading
+      // Preserve already-loaded messages — refresh can fire while reading.
+      // messageCacheRef survives even when prev doesn't have the room yet
+      // (race: loadMessages resolves before the first loadRooms).
       setRooms(prev => {
         const byId = new Map(prev.map(r => [r.id, r]));
-        return appRooms.map(r => ({ ...r, messages: byId.get(r.id)?.messages ?? [] }));
+        return appRooms.map(r => {
+          const prevMsgs = byId.get(r.id)?.messages;
+          return { ...r, messages: prevMsgs?.length ? prevMsgs : (messageCacheRef.current.get(r.id) ?? []) };
+        });
       });
       // Chat-list previews
       loadRoomPreviews().then(list => {
@@ -309,6 +316,7 @@ export default function ClientApp() {
       const dbMsgs = await loadMessages(active);
       if (cancelled) return;
       const appMsgs = dbMsgs.map(dbMsgToApp);
+      messageCacheRef.current.set(active, appMsgs);
       setRooms(prev => prev.map(r => r.id === active ? { ...r, messages: appMsgs } : r));
       const pin = await loadPin(active);
       if (cancelled) return;
