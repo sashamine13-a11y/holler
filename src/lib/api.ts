@@ -65,12 +65,9 @@ export interface DbRoomMember {
 
 /**
  * Load rooms visible to the user:
- *  - channels the user has joined (room_members) or created (opt-in)
+ *  - all channels (room_type='channel')
  *  - DMs where the user is dm_user1 or dm_user2
  *  - groups where the user has a room_members row
- *
- * By default a brand-new user sees ZERO rooms — they add them on demand
- * via createRoom / joinChannel (surfaced in the sidebar "Add a room" panel).
  */
 export async function loadRooms(myUserId: string): Promise<{ rooms: DbRoom[]; memberships: DbRoomMember[] }> {
   const [roomsRes, membershipsRes] = await Promise.all([
@@ -89,37 +86,10 @@ export async function loadRooms(myUserId: string): Promise<{ rooms: DbRoom[]; me
   const visible = all.filter(r => {
     if (r.room_type === 'dm') return r.dm_user1 === myUserId || r.dm_user2 === myUserId;
     if (r.room_type === 'group') return myRoomIds.has(r.id);
-    // channel: opt-in — only if the user joined or created it
-    return myRoomIds.has(r.id) || r.created_by === myUserId;
+    return true; // channels visible to everyone
   });
 
   return { rooms: visible, memberships };
-}
-
-/**
- * Browse channels the user has NOT joined yet (for the "Join channel" UI).
- */
-export async function browseChannels(myUserId: string): Promise<DbRoom[]> {
-  const [roomsRes, membershipsRes] = await Promise.all([
-    supabase.from('rooms').select('*').eq('room_type', 'channel').order('created_at', { ascending: true }),
-    supabase.from('room_members').select('room_id').eq('user_id', myUserId),
-  ]);
-  if (roomsRes.error) return [];
-  const joined = new Set(((membershipsRes.data ?? []) as { room_id: string }[]).map(m => m.room_id));
-  const all = (roomsRes.data ?? []) as DbRoom[];
-  return all.filter(r => !joined.has(r.id) && r.created_by !== myUserId);
-}
-
-/** Join a channel by adding yourself as a member. */
-export async function joinChannel(roomId: string, userId: string): Promise<boolean> {
-  const { error } = await supabase
-    .from('room_members')
-    .insert({ room_id: roomId, user_id: userId, role: 'member' });
-  if (error) {
-    console.warn('[api] joinChannel error:', error.message);
-    return false;
-  }
-  return true;
 }
 
 /** Load messages for a room, oldest first (soft-deleted excluded). */

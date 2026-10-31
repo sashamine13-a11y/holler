@@ -11,7 +11,7 @@ import { Badge } from '@/components/ui/badge';
 import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
 } from '@/components/ui/dialog';
-import type { DbProfile, DbRoom } from '@/lib/api';
+import type { DbProfile } from '@/lib/api';
 import { avColor, initials, roomColor, MAX_ABOUT_LEN, type Room, type RoomKind } from '@/lib/chat-types';
 import {
   AtSign, Crown, Forward, Megaphone, MessageCircle, MessageSquare, Plus, Search,
@@ -567,49 +567,6 @@ export function UserProfileModal(props: {
           <Button variant="outline" className="w-full" onClick={onClose}>
             {t('profile.close')}
           </Button>
-        </div>
-      </div>
-    </ModalShell>
-  );
-}
-
-// ============================================================================
-// BrowseChannelsModal — join an existing channel (opt-in room discovery)
-// ============================================================================
-export function BrowseChannelsModal(props: {
-  onClose: () => void;
-  channels: DbRoom[];
-  onJoin: (roomId: string) => void;
-  t: (key: string) => string;
-}) {
-  const { onClose, channels, onJoin, t } = props;
-  return (
-    <ModalShell title={t('nav.browseChannels')} onClose={onClose}>
-      <div className="space-y-3">
-        <p className="text-xs text-muted-foreground">{t('nav.browseChannelsHint')}</p>
-        <div className="max-h-80 overflow-y-auto scroll-thin border border-border rounded-xl divide-y divide-border">
-          {channels.length === 0 && (
-            <div className="px-3 py-6 text-center text-xs text-muted-foreground">
-              {t('nav.noChannelsToJoin')}
-            </div>
-          )}
-          {channels.map(r => (
-            <button
-              key={r.id}
-              type="button"
-              onClick={() => { onJoin(r.id); onClose(); }}
-              className="w-full flex items-center gap-3 px-3 py-2.5 hover:bg-muted/40 transition-colors text-left"
-            >
-              <div className="room-avatar size-9 shrink-0" style={{ background: roomColor({ id: r.id, name: r.name, kind: r.kind, roomType: 'channel', messages: [], category: r.category ?? 'general' } as Room) }}>
-                <Megaphone className="size-4" />
-              </div>
-              <div className="flex-1 min-w-0">
-                <div className="text-sm font-medium truncate word-safe">{r.name}</div>
-                {r.about && <div className="text-xs text-muted-foreground truncate word-safe">{r.about}</div>}
-              </div>
-              <Plus className="size-4 text-primary shrink-0" />
-            </button>
-          ))}
         </div>
       </div>
     </ModalShell>
