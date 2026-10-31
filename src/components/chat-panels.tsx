@@ -12,7 +12,7 @@ import { useLocalSettings, formatTimePref } from '@/lib/local-settings';
 import type { ChannelComment } from '@/lib/api';
 import {
   BarChart3, CheckCircle2, ChevronDown, Circle, EyeOff, Forward, MessageCircle,
-  MessageCircleOff, Pin, Reply, Send, Trash2, Wrench,
+  MessageCircleOff, Pin, Reply, Send, SmilePlus, Trash2, Wrench,
 } from 'lucide-react';
 
 // ============================================================================
@@ -37,6 +37,8 @@ export function MessageItem(props: {
   onCopy?: (text: string) => void;
   onEdit?: (msg: Message) => void;
   onAuthorClick?: (authorId: string) => void;
+  reactions?: { user_id: string; emoji: string }[];
+  onToggleReaction?: (emoji: string) => void;
   t: (key: string) => string;
   // dev role: can delete any message
   canModerate?: boolean;
@@ -52,6 +54,7 @@ export function MessageItem(props: {
     msg, currentUserId, showHeader, isPinned, isEditing, editText,
     onEditChange, onEditSave, onEditCancel,
     onReply, onPin, onUnpin, onDelete, onForward, onCopy, onEdit, onAuthorClick, t,
+    reactions, onToggleReaction,
     canModerate, channelMode, comments, commentsAllowed, canModerateComments,
     onAddComment, onDeleteComment,
   } = props;
@@ -231,6 +234,16 @@ export function MessageItem(props: {
               </button>
             )}
           </div>
+          {/* Reactions bar */}
+          {onToggleReaction && !isEditing && (
+            <ReactionsBar
+              reactions={reactions ?? []}
+              currentUserId={currentUserId}
+              mine={mine}
+              onToggle={onToggleReaction}
+              t={t}
+            />
+          )}
           {/* Channel post comments thread */}
           {channelMode && comments && onAddComment && onDeleteComment && (
             <CommentThread
@@ -470,5 +483,79 @@ export function AnonCard(props: { q: AnonQuestion; onAnswer: (id: string, text: 
         </Button>
       )}
     </Card>
+  );
+}
+
+// ============================================================================
+// ReactionsBar — emoji reactions under a message
+// ============================================================================
+
+const QUICK_EMOJIS = ['👍', '❤️', '😂', '😮', '😢', '🙏', '🔥', '👏'];
+
+function ReactionsBar(props: {
+  reactions: { user_id: string; emoji: string }[];
+  currentUserId: string;
+  mine: boolean;
+  onToggle: (emoji: string) => void;
+  t: (key: string) => string;
+}) {
+  const { reactions, currentUserId, mine, onToggle, t } = props;
+  const [pickerOpen, setPickerOpen] = useState(false);
+
+  // group by emoji
+  const grouped: Record<string, { count: number; mine: boolean }> = {};
+  for (const r of reactions) {
+    if (!grouped[r.emoji]) grouped[r.emoji] = { count: 0, mine: false };
+    grouped[r.emoji].count++;
+    if (r.user_id === currentUserId) grouped[r.emoji].mine = true;
+  }
+  const entries = Object.entries(grouped).sort((a, b) => b[1].count - a[1].count);
+  const hasAny = entries.length > 0;
+
+  return (
+    <div className={`flex items-center gap-1 flex-wrap mt-1 ${mine ? 'justify-end' : 'justify-start'}`}>
+      {entries.map(([emoji, info]) => (
+        <button
+          key={emoji}
+          type="button"
+          onClick={() => onToggle(emoji)}
+          className={`inline-flex items-center gap-1 h-6 px-1.5 rounded-full text-xs transition-colors border
+            ${info.mine
+              ? 'bg-primary/15 border-primary/40 text-primary'
+              : 'bg-muted/60 border-border/60 text-foreground hover:bg-muted'}`}
+          title={info.mine ? t('reactions.youReacted') : t('reactions.react')}
+        >
+          <span className="text-[13px] leading-none">{emoji}</span>
+          {info.count > 1 && <span className="tabular-nums font-medium text-[11px]">{info.count}</span>}
+        </button>
+      ))}
+      <div className="relative">
+        <button
+          type="button"
+          onClick={() => setPickerOpen(o => !o)}
+          aria-label={t('reactions.add')}
+          className="size-6 rounded-full border border-border/60 bg-muted/40 hover:bg-muted text-muted-foreground hover:text-foreground flex items-center justify-center transition-colors"
+        >
+          <SmilePlus className="size-3.5" />
+        </button>
+        {pickerOpen && (
+          <div className={`absolute z-20 top-7 ${mine ? 'right-0' : 'left-0'} glass border border-border rounded-xl p-1.5 shadow-lg flex gap-0.5`}>
+            {QUICK_EMOJIS.map(em => (
+              <button
+                key={em}
+                type="button"
+                onClick={() => { onToggle(em); setPickerOpen(false); }}
+                className="size-8 rounded-lg hover:bg-muted flex items-center justify-center text-lg leading-none transition-colors"
+              >
+                {em}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+      {!hasAny && !pickerOpen && (
+        <span className="text-[10px] text-muted-foreground/60 ml-0.5">{t('reactions.react')}</span>
+      )}
+    </div>
   );
 }

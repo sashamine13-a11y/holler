@@ -21,15 +21,17 @@ import { Sidebar } from '@/components/sidebar';
 import { MessageItem, PollCard, AnonCard } from '@/components/chat-panels';
 import { Avatar } from '@/components/avatar';
 import {
-  AddRoomModal, AnonModal, CreateGroupModal, ForwardModal, NewDmModal, PollModal, UserProfileModal,
+  AddRoomModal, AnonModal, BrowseChannelsModal, CreateGroupModal, ForwardModal, NewDmModal, PollModal, UserProfileModal,
 } from '@/components/modals';
 import { RoomSettingsModal } from '@/components/room-settings';
 import { SettingsModal } from '@/components/settings-modal';
 import { useI18n } from '@/lib/i18n';
 import { useLocalSettings, formatTimePref, WALLPAPER_PRESETS } from '@/lib/local-settings';
 import {
-  type DbRoom, type DbMessage, type DbProfile, type DbRoomMember, type ChannelComment,
+  type DbRoom, type DbMessage, type DbProfile, type DbRoomMember, type ChannelComment, type DbReaction,
   loadRooms, loadMessages, loadProfiles, loadRoom,
+  browseChannels, subscribeChannel as apiSubscribe, unsubscribeChannel as apiUnsubscribe,
+  loadReactions, toggleReaction as apiToggleReaction, subscribeToReactions, subscribeToSubscriptions,
   insertMessage, softDeleteMessage as apiDeleteMessage, editMessage as apiEditMessage,
   findOrCreateDm, createGroup as apiCreateGroup,
   updateRoom as apiUpdateRoom, addRoomMembers as apiAddMembers, removeRoomMember as apiRemoveMember,
@@ -53,7 +55,7 @@ import {
 // Types
 // ============================================================================
 
-type ModalMode = 'addChannel' | 'poll' | 'anon' | 'createGroup' | 'forward' | 'newDm' | 'roomSettings' | 'settings' | null;
+type ModalMode = 'addChannel' | 'browseChannels' | 'poll' | 'anon' | 'createGroup' | 'forward' | 'newDm' | 'roomSettings' | 'settings' | null;
 
 // ============================================================================
 // Prefs — only UI state (rooms/messages live in Supabase)
@@ -149,6 +151,10 @@ export default function ClientApp() {
   const [profiles, setProfiles] = useState<DbProfile[]>([]);
   const [roomMemberships, setRoomMemberships] = useState<DbRoomMember[]>([]);
   const [loadingRooms, setLoadingRooms] = useState(true);
+  const [joinableChannels, setJoinableChannels] = useState<DbRoom[]>([]);
+  const [reactions, setReactions] = useState<Record<string, DbReaction[]>>({});
+  const reactionsRef = useRef<Record<string, DbReaction[]>>({});
+  reactionsRef.current = reactions;
 
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [inputValue, setInputValue] = useState('');
@@ -255,11 +261,13 @@ export default function ClientApp() {
   const refreshRooms = useCallback(async () => {
     if (!user) return;
     try {
-      const [{ rooms: dbRooms, memberships }, dbProfiles] = await Promise.all([
+      const [{ rooms: dbRooms, memberships }, dbProfiles, joinable] = await Promise.all([
         loadRooms(user.id),
         loadProfiles(),
+        browseChannels(user.id),
       ]);
       setProfiles(dbProfiles);
+      setJoinableChannels(joinable);
       const appRooms = dbRooms.map(r => dbRoomToApp(r, user.id, dbProfiles));
       setRoomMemberships(memberships);
       // Preserve already-loaded messages — refresh can fire while reading.
@@ -405,7 +413,22 @@ export default function ClientApp() {
         return next;
       }),
     );
-    return () => { cancelled = true; unsub(); };
+    // Load reactions for this room + realtime subscription
+    loadReactions(active).then(list => {
+      if (cancelled) return;
+      const byMsg: Record<string, DbReaction[]> = {};
+      for (const r of list) (byMsg[r.message_id] ??= []).push(r);
+      setReactions(byMsg);
+    });
+    const unsubReactions = subscribeToReactions(active, () => {
+      loadReactions(active).then(list => {
+        if (cancelled) return;
+        const byMsg: Record<string, DbReaction[]> = {};
+        for (const r of list) (byMsg[r.message_id] ??= []).push(r);
+        setReactions(byMsg);
+      });
+    });
+    return () => { cancelled = true; unsub(); unsubReactions(); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [active, user]);
 
@@ -696,6 +719,49 @@ export default function ClientApp() {
     } catch {
       toast.error('Failed to create room');
     }
+  };
+
+  const subscribeToChannel = async (roomId: string) => {
+    if (!user) return;
+    const ok = await apiSubscribe(roomId, user.id);
+    if (!ok) { toast.error('Failed to subscribe'); return; }
+    const dbRoom = await loadRoom(roomId);
+    if (dbRoom) {
+      const appRoom = dbRoomToApp(dbRoom, user.id, profiles);
+      setRooms(prev => prev.some(r => r.id === roomId) ? prev : [...prev, appRoom]);
+      setActive(roomId);
+      setSidebarOpen(false);
+      toast.success(t('room.subscribed'));
+      // refresh joinable list
+      setJoinableChannels(prev => prev.filter(r => r.id !== roomId));
+    }
+  };
+
+  const unsubscribeFromChannel = async (roomId: string) => {
+    if (!user) return;
+    const ok = await apiUnsubscribe(roomId, user.id);
+    if (!ok) { toast.error('Failed to unsubscribe'); return; }
+    setRooms(prev => prev.filter(r => r.id !== roomId));
+    if (active === roomId) setActive('');
+    toast.success(t('room.unsubscribed'));
+    // re-add to joinable
+    const dbRoom = await loadRoom(roomId);
+    if (dbRoom) setJoinableChannels(prev => prev.some(r => r.id === roomId) ? prev : [...prev, dbRoom]);
+  };
+
+  const handleToggleReaction = async (messageId: string, emoji: string) => {
+    if (!user || !activeRoom) return;
+    // optimistic: toggle locally
+    const roomId = activeRoom.id;
+    setReactions(prev => {
+      const list = prev[messageId] ?? [];
+      const exists = list.some(r => r.user_id === user.id && r.emoji === emoji);
+      const next = exists
+        ? list.filter(r => !(r.user_id === user.id && r.emoji === emoji))
+        : [...list, { id: 'tmp', message_id: messageId, room_id: roomId, user_id: user.id, emoji, created_at: new Date().toISOString() }];
+      return { ...prev, [messageId]: next };
+    });
+    await apiToggleReaction(messageId, roomId, user.id, emoji);
   };
 
   const startDm = async (otherUserId: string) => {
@@ -1212,6 +1278,8 @@ export default function ClientApp() {
           onAddChannel={() => setModalMode('addChannel')}
           onAddGroup={() => setModalMode('createGroup')}
           onNewDm={() => setModalMode('newDm')}
+          onBrowseChannels={() => setModalMode('browseChannels')}
+          joinableChannelCount={joinableChannels.length}
           user={user}
           onLogout={handleLogout}
           onSettings={() => setModalMode('settings')}
@@ -1392,6 +1460,8 @@ export default function ClientApp() {
                           toast(t('msg.copied'));
                         }}
                         onAuthorClick={(uid) => openUserProfile(uid)}
+                        reactions={reactions[it.id] ?? []}
+                        onToggleReaction={(emoji) => handleToggleReaction(it.id, emoji)}
                         t={t}
                       />
                     );
@@ -1634,6 +1704,14 @@ export default function ClientApp() {
       {/* ------------------- Modals ------------------- */}
       {modalMode === 'addChannel' && (
         <AddRoomModal onClose={() => setModalMode(null)} onCreate={createRoom} t={t} />
+      )}
+      {modalMode === 'browseChannels' && (
+        <BrowseChannelsModal
+          onClose={() => setModalMode(null)}
+          channels={joinableChannels}
+          onSubscribe={subscribeToChannel}
+          t={t}
+        />
       )}
       {modalMode === 'createGroup' && (
         <CreateGroupModal

@@ -33,6 +33,8 @@ export function Sidebar(props: {
   onAddChannel: () => void;
   onAddGroup: () => void;
   onNewDm: () => void;
+  onBrowseChannels: () => void;
+  joinableChannelCount: number;
   user: User;
   onLogout: () => void;
   onSettings: () => void;
@@ -47,8 +49,8 @@ export function Sidebar(props: {
 }) {
   const {
     rooms, active, searchQuery, onSearchChange, onSelect, onAddChannel, onAddGroup,
-    onNewDm, user, onLogout, onSettings, onlineMembers, isConnected,
-    onMemberClick, profiles, previews, seen, mobileOpen, onClose,
+    onNewDm, onBrowseChannels, joinableChannelCount, user, onLogout, onSettings,
+    onlineMembers, isConnected, onMemberClick, profiles, previews, seen, mobileOpen, onClose,
   } = props;
   const { t, dateLocale } = useI18n();
   const { roomPrefs } = useLocalSettings();
@@ -269,6 +271,26 @@ export function Sidebar(props: {
             </div>
           )}
 
+          {/* Browse channels — discover & subscribe (when there are channels to join) */}
+          {!q && joinableChannelCount > 0 && (
+            <div className="mt-2 mb-1">
+              <button
+                type="button"
+                onClick={onBrowseChannels}
+                className="w-full flex items-center gap-2 px-2 py-2 rounded-xl hover:bg-muted/50 transition-colors text-left text-muted-foreground"
+              >
+                <span className="size-7 rounded-lg bg-primary/10 text-primary flex items-center justify-center shrink-0">
+                  <Search className="size-3.5" />
+                </span>
+                <span className="flex-1 min-w-0">
+                  <span className="block text-[13px] font-medium truncate">{t('nav.browseChannels')}</span>
+                  <span className="block text-[11px] truncate">{t('nav.browseChannelsHint')}</span>
+                </span>
+                <span className="text-[10px] tabular-nums shrink-0">{joinableChannelCount}</span>
+              </button>
+            </div>
+          )}
+
           {/* People in search results */}
           {q && (
             <div className="mt-3">
@@ -430,8 +452,10 @@ function RoomItem(props: {
           <div className="text-[11.5px] truncate flex-1 word-safe">
             {preview ? (
               <span className={unread ? 'text-foreground font-medium' : ''}>{prefix}{previewText}</span>
+            ) : room.roomType !== 'dm' ? (
+              <span className="text-muted-foreground">@{roomHandle(room.name)}{room.about ? ` · ${room.about}` : ''}</span>
             ) : (
-              room.about && room.roomType !== 'dm' ? room.about : ''
+              ''
             )}
           </div>
           {unread && <span className="brand-mark size-2 rounded-full shrink-0" aria-label="unread" />}
@@ -439,4 +463,11 @@ function RoomItem(props: {
       </div>
     </div>
   );
+}
+
+/** Derive a @handle from a room name (lowercase, [a-z0-9_]). */
+function roomHandle(name: string): string {
+  let h = name.toLowerCase().replace(/[^a-z0-9_]/g, '_').replace(/_+/g, '_').replace(/^_+|_+$/g, '');
+  if (!h) h = 'channel';
+  return h.slice(0, 20);
 }

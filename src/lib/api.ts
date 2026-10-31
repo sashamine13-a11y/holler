@@ -65,14 +65,15 @@ export interface DbRoomMember {
 
 /**
  * Load rooms visible to the user:
- *  - all channels (room_type='channel')
+ *  - channels the user subscribed to (channel_subscriptions) or created
  *  - DMs where the user is dm_user1 or dm_user2
  *  - groups where the user has a room_members row
  */
 export async function loadRooms(myUserId: string): Promise<{ rooms: DbRoom[]; memberships: DbRoomMember[] }> {
-  const [roomsRes, membershipsRes] = await Promise.all([
+  const [roomsRes, membershipsRes, subsRes] = await Promise.all([
     supabase.from('rooms').select('*').order('created_at', { ascending: true }),
     supabase.from('room_members').select('*').eq('user_id', myUserId),
+    supabase.from('channel_subscriptions').select('room_id').eq('user_id', myUserId),
   ]);
 
   if (roomsRes.error) {
@@ -81,15 +82,112 @@ export async function loadRooms(myUserId: string): Promise<{ rooms: DbRoom[]; me
   }
   const memberships = (membershipsRes.data ?? []) as DbRoomMember[];
   const myRoomIds = new Set(memberships.map(m => m.room_id));
+  const mySubs = new Set(((subsRes.data ?? []) as { room_id: string }[]).map(s => s.room_id));
 
   const all = (roomsRes.data ?? []) as DbRoom[];
   const visible = all.filter(r => {
     if (r.room_type === 'dm') return r.dm_user1 === myUserId || r.dm_user2 === myUserId;
     if (r.room_type === 'group') return myRoomIds.has(r.id);
-    return true; // channels visible to everyone
+    // channel: visible only if subscribed or created
+    return mySubs.has(r.id) || r.created_by === myUserId;
   });
 
   return { rooms: visible, memberships };
+}
+
+/**
+ * Browse channels the user has NOT subscribed to yet (for discovery / search).
+ */
+export async function browseChannels(myUserId: string): Promise<DbRoom[]> {
+  const [roomsRes, subsRes] = await Promise.all([
+    supabase.from('rooms').select('*').eq('room_type', 'channel').order('created_at', { ascending: true }),
+    supabase.from('channel_subscriptions').select('room_id').eq('user_id', myUserId),
+  ]);
+  if (roomsRes.error) return [];
+  const subs = new Set(((subsRes.data ?? []) as { room_id: string }[]).map(s => s.room_id));
+  const all = (roomsRes.data ?? []) as DbRoom[];
+  return all.filter(r => !subs.has(r.id) && r.created_by !== myUserId);
+}
+
+/** Subscribe to a channel. */
+export async function subscribeChannel(roomId: string, userId: string): Promise<boolean> {
+  const { error } = await supabase
+    .from('channel_subscriptions')
+    .insert({ room_id: roomId, user_id: userId });
+  if (error) { console.warn('[api] subscribe error:', error.message); return false; }
+  return true;
+}
+
+/** Unsubscribe from a channel. */
+export async function unsubscribeChannel(roomId: string, userId: string): Promise<boolean> {
+  const { error } = await supabase
+    .from('channel_subscriptions')
+    .delete()
+    .eq('room_id', roomId)
+    .eq('user_id', userId);
+  if (error) { console.warn('[api] unsubscribe error:', error.message); return false; }
+  return true;
+}
+
+// ============================================================================
+// Message reactions
+// ============================================================================
+
+export interface DbReaction {
+  id: string;
+  message_id: string;
+  room_id: string;
+  user_id: string;
+  emoji: string;
+  created_at: string;
+}
+
+/** Load all reactions for a room. */
+export async function loadReactions(roomId: string): Promise<DbReaction[]> {
+  const { data, error } = await supabase
+    .from('message_reactions')
+    .select('*')
+    .eq('room_id', roomId);
+  if (error) { console.warn('[api] loadReactions error:', error.message); return []; }
+  return (data ?? []) as DbReaction[];
+}
+
+/** Toggle a reaction (add if absent, remove if present). Returns the new list for that message. */
+export async function toggleReaction(messageId: string, roomId: string, userId: string, emoji: string): Promise<void> {
+  // try delete first (toggle off)
+  const { error: delErr } = await supabase
+    .from('message_reactions')
+    .delete()
+    .eq('message_id', messageId)
+    .eq('user_id', userId)
+    .eq('emoji', emoji);
+  if (delErr) { console.warn('[api] reaction delete error:', delErr.message); return; }
+  // if nothing deleted, insert (toggle on)
+  // (we can't know rowcount from supabase without select, so just try insert; unique constraint catches dupes)
+  const { error: insErr } = await supabase
+    .from('message_reactions')
+    .insert({ message_id: messageId, room_id: roomId, user_id: userId, emoji });
+  if (insErr && insErr.code !== '23505') { // 23505 = unique violation (already exists) — ignore
+    console.warn('[api] reaction insert error:', insErr.message);
+  }
+}
+
+/** Realtime: subscribe to reaction changes in a room. */
+export function subscribeToReactions(roomId: string, onChange: () => void): () => void {
+  const channel = supabase
+    .channel(`reactions:${roomId}`)
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'message_reactions', filter: `room_id=eq.${roomId}` }, () => onChange())
+    .subscribe();
+  return () => { supabase.removeChannel(channel); };
+}
+
+/** Realtime: subscribe to channel_subscriptions changes for the current user. */
+export function subscribeToSubscriptions(userId: string, onChange: () => void): () => void {
+  const channel = supabase
+    .channel(`subs:${userId}`)
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'channel_subscriptions', filter: `user_id=eq.${userId}` }, () => onChange())
+    .subscribe();
+  return () => { supabase.removeChannel(channel); };
 }
 
 /** Load messages for a room, oldest first (soft-deleted excluded). */
